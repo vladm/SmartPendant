@@ -491,6 +491,37 @@ Result ProgramSender::ProcessSpeedFeed()
 }
 
 // *****************************************************************************
+// ***   IsProgramFile function(file scope)   **********************************
+// *****************************************************************************
+// * Returns true if directory entry is a program file(.nc* or .gc*
+// * extension, not a directory). Used by the menu fill and the open handler:
+// * both must use the same filter, since the file is found by its index.
+static bool IsProgramFile(const FILINFO& fno)
+{
+  // Check extension - we want .gc* or .nc*
+  bool add_file = false;
+  // Index variable
+  uint32_t i = 0u;
+  // Find end of the filename
+  for(; i < NumberOf(fno.fname); i++) if(fno.fname[i] == '\0') break;
+  // Check extension (only if the name is long enough, otherwise i -= 3u underflows)
+  for(i -= ((i >= 3u) ? 3u : 0u); i > 0; i--)
+  {
+    // Check if extension is .nc* or .gc*
+    if((fno.fname[i] == '.') && (tolower(fno.fname[i+2]) == 'c'))
+    {
+      if((tolower(fno.fname[i+1]) == 'g') || (tolower(fno.fname[i+1]) == 'n'))
+      {
+        add_file = true;
+        break;
+      }
+    }
+  }
+  // It should be a file with the proper extension, not a directory
+  return (add_file && !(fno.fattrib & AM_DIR));
+}
+
+// *****************************************************************************
 // ***   Private: ProcessMenuOkCallback function   *****************************
 // *****************************************************************************
 Result ProgramSender::ProcessMenuOkCallback(ProgramSender* obj_ptr, void* ptr)
@@ -507,26 +538,61 @@ Result ProgramSender::ProcessMenuOkCallback(ProgramSender* obj_ptr, void* ptr)
     // Hide the menu
     ths.menu.Hide();
 
-    // Buffer for the file name, filled with 0
-    char fn[20u] = {0};
-    // Copy filename(max 19 characters)
-    for(uint32_t i = 0u; i < NumberOf(fn); i++)
+    // Selected menu index
+    uint32_t sel_idx = (uint32_t)ptr;
+
+    // Find the file by rescanning the directory instead of parsing the name
+    // back out of the padded menu text: the menu shows only 19 characters of
+    // the name, so a longer name either fails to open or - worse - another
+    // file matching the truncated prefix could be opened and run.
+    FILINFO fno;
+    DIR dir;
+    // Found flag
+    bool found = false;
+
+    // Open the root directory
+    if(f_opendir(&dir, "/") == FR_OK)
     {
-      fn[i] = ths.menu_items[(uint32_t)ptr].text[i];
-      if(fn[i] == '\0') break;
+      // Index of the current program file
+      uint32_t file_idx = 0u;
+      for(;;)
+      {
+        // Read a directory item, stop on error or end of dir
+        if((f_readdir(&dir, &fno) != FR_OK) || (fno.fname[0] == 0)) break;
+        // Count only program files - the same filter the menu fill uses,
+        // so indexes match the menu positions
+        if(IsProgramFile(fno))
+        {
+          // Check if it is the selected one
+          if(file_idx == sel_idx)
+          {
+            found = true;
+            break;
+          }
+          file_idx++;
+        }
+      }
+      f_closedir(&dir);
     }
-    // Null-terminate it
-    fn[NumberOf(fn) - 1] = '\0';
-    // Go from the end of array and replace all spaces to null-terminator until
-    // we found first non-space character
-    for(uint32_t i = NumberOf(fn) - 1u; i > 0u; i--)
+
+    // Verify the found file against the displayed menu string: directory
+    // content could change since the list was shown(card swap) and the
+    // "-- Too many files! --" marker doesn't correspond to a file at all.
+    if(found && (sel_idx < NumberOf(ths.menu_items)))
     {
-      if(fn[i] <= ' ') fn[i] = '\0';
-      else break;
+      // Buffer for the check string - same size as the menu item text
+      char check_str[32u + 1u];
+      snprintf(check_str, NumberOf(check_str), "%-19.19s%12lub", fno.fname, fno.fsize);
+      // Clear flag if it doesn't match the menu item
+      if(strcmp(check_str, ths.menu_items[sel_idx].text) != 0) found = false;
+    }
+    else
+    {
+      found = false;
     }
 
     // Open file
-    FRESULT fres = f_open(&SDFile, fn, FA_OPEN_EXISTING | FA_READ);
+    FRESULT fres = found ? f_open(&SDFile, fno.fname, FA_OPEN_EXISTING | FA_READ) : FR_NO_FILE;
     // Write data to file
     if(fres == FR_OK)
     {
@@ -587,13 +653,16 @@ Result ProgramSender::ProcessMenuOkCallback(ProgramSender* obj_ptr, void* ptr)
         uint32_t long_line_n = 0u;
         // Read bytes count
         UINT rb = 0u;
+        // Read result: must be checked after the cycle - an error mid-scan
+        // leaves the tail of the file unchecked and must not pass the check
+        FRESULT check_res = FR_OK;
         // Chunk buffer: chunked f_read() is much faster than byte by byte f_gets()
         char chunk[256u];
 
         // Walk through the whole file to find lines longer than the line
         // buffer: discovering such line mid-run would stop the program(see
         // TimerExpired()), so it is better to refuse the file at open.
-        while((f_read(&SDFile, chunk, NumberOf(chunk), &rb) == FR_OK) && (rb > 0u))
+        while(((check_res = f_read(&SDFile, chunk, NumberOf(chunk), &rb)) == FR_OK) && (rb > 0u))
         {
           for(uint32_t i = 0u; i < rb; i++)
           {
@@ -625,8 +694,20 @@ Result ProgramSender::ProcessMenuOkCallback(ProgramSender* obj_ptr, void* ptr)
         // Hide message box
         ths.msg_box.Hide();
 
+        // If read failed mid-scan: the unchecked tail can still contain a
+        // long line - the exact situation this check exists to prevent, so
+        // the file must be refused, not treated as checked.
+        if(check_res != FR_OK)
+        {
+          // Close file - program can't be streamed safely
+          f_close(&SDFile);
+          // Clear text buffer
+          ths.text_box.SetText(nullptr);
+          // Show the reason
+          ths.text_box.AddLine("; File read error");
+        }
         // If program contains a line that is too long
-        if(long_line_n != 0u)
+        else if(long_line_n != 0u)
         {
           // Close file - program can't be streamed safely
           f_close(&SDFile);
@@ -829,27 +910,9 @@ Result ProgramSender::ProcessCallback(const void* ptr)
         res = f_readdir(&dir, &fno);
         // Break on error or end of dir
         if((res != FR_OK) || (fno.fname[0] == 0)) break;
-        // Check extension - we want .gc* or .nc*
-        bool add_file = false;
-        // Index variable
-        uint32_t i = 0u;
-        // Find end of the filename
-        for(; i < NumberOf(fno.fname); i++) if(fno.fname[i] == '\0') break;
-        // Check extension (only if the name is long enough, otherwise i -= 3u underflows)
-        for(i -= ((i >= 3u) ? 3u : 0u); i > 0; i--)
-        {
-          // Check if extension is .nc* or .gc*
-          if((fno.fname[i] == '.') && (tolower(fno.fname[i+2]) == 'c'))
-          {
-            if((tolower(fno.fname[i+1]) == 'g') || (tolower(fno.fname[i+1]) == 'n'))
-            {
-              add_file = true;
-              break;
-            }
-          }
-        }
-        // It isn't a directory
-        if(!(fno.fattrib & AM_DIR) && add_file)
+        // Add only program files. The same filter is used by the open
+        // handler which finds the file by its index in the directory.
+        if(IsProgramFile(fno))
         {
           menu_items[idx].str.SetString(menu_items[idx].text, menu_items[idx].n, "%-19.19s%12lub", fno.fname, fno.fsize);
           idx++;

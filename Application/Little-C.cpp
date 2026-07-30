@@ -217,6 +217,10 @@ bool LittleC::GetGlobalVariableName(int variable_idx, char* ptr, int n)
       // Copy character to buffer
       ptr[i] = var_stack[variable_idx].name[i];
     }
+    // Name is longer than the buffer - truncate it. Callers pass fixed size
+    // UI buffers and some ignore the result, so the buffer must always be
+    // null-terminated, otherwise it is read out of bounds by strlen() later.
+    if((result == false) && (n > 0)) ptr[n - 1] = '\0';
   }
   // Return result
   return result;

@@ -515,6 +515,15 @@ class ToolOffsetTab : public IScreen
     // Buttons to measure base
     UiButton get_base_btn;
 
+    // Base position validity flag: set by a successful base measurement,
+    // cleared at boot/setup and when machine coordinates can shift
+    // (controller reboot or re-homing). Tool offset measurement is the
+    // difference to the base, so it must be refused while base is invalid.
+    bool base_valid = false;
+
+    // Message box for errors
+    MsgBox& msg_box;
+
     // Display driver instance
     DisplayDrv& display_drv = DisplayDrv::GetInstance();
     // GRBL Communication Interface instance
@@ -523,7 +532,7 @@ class ToolOffsetTab : public IScreen
     // *************************************************************************
     // ***   Private constructor   *********************************************
     // *************************************************************************
-    ToolOffsetTab() {};
+    ToolOffsetTab();
 };
 
 #endif

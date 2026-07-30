@@ -98,9 +98,6 @@ Result Application::Setup()
   // If result is bad
   if(nvm_result.IsBad())
   {
-    // Show message box
-    msg_box.Setup("NVM ERROR", "All parameters set\nto default state\n\nPlease check parameters\nbefore use!");
-    msg_box.Show(10000u);
     // Override screen will return UNHANDLED_REQUEST for message box
     scr_idx = scr_cnt - 1u;
   }
@@ -109,6 +106,18 @@ Result Application::Setup()
   header.SetSelectedPage(scr_idx);
   // Show new screen
   scr[scr_idx]->Show();
+
+  // If result is bad show message box. It must be shown AFTER the screen:
+  // input handlers are registered at the head of the list and InputDrv
+  // delivers events only to the first matching handler, so a message box
+  // shown before Show() would leave the screen's encoder/buttons handlers
+  // on top of the modal and input would reach the screen underneath it.
+  if(nvm_result.IsBad())
+  {
+    // Show message box
+    msg_box.Setup("NVM ERROR", "All parameters set\nto default state\n\nPlease check parameters\nbefore use!");
+    msg_box.Show(10000u);
+  }
 
   // Auto control request, if enabled
   if(NVM::GetInstance().GetValue(NVM::AUTO_MPG_ON_START))
@@ -163,14 +172,6 @@ Result Application::TimerExpired(uint32_t missed_cnt)
     change_value_box.Hide();
     msg_box.Hide();
 
-    // Check controller settings
-    if(!grbl_comm.IsWorkOffsetReportEnabled())
-    {
-      // Show message box
-      msg_box.Setup("WORK OFFSET", "Controller doen't report work\noffset. Please enable it in\nthe controller settings:\n\nGeneral->Status report options\n[v] Work coordinate offset");
-      msg_box.Show(10000u);
-    }
-
     // Hide screen
     scr[scr_idx]->Hide();
     // Initialize header
@@ -184,6 +185,18 @@ Result Application::TimerExpired(uint32_t missed_cnt)
     scr_idx = 0u;
     // Show first screen
     scr[scr_idx]->Show();
+
+    // Check controller settings. Message box must be shown AFTER the screen:
+    // input handlers are registered at the head of the list and InputDrv
+    // delivers events only to the first matching handler, so a message box
+    // shown before Show() would leave the screen's encoder/buttons handlers
+    // on top of the modal and input would reach the screen underneath it.
+    if(!grbl_comm.IsWorkOffsetReportEnabled())
+    {
+      // Show message box
+      msg_box.Setup("WORK OFFSET", "Controller doen't report work\noffset. Please enable it in\nthe controller settings:\n\nGeneral->Status report options\n[v] Work coordinate offset");
+      msg_box.Show(10000u);
+    }
   }
 
   // Call timer callback for current screen
