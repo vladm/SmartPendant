@@ -39,6 +39,8 @@ void LittleC::SetPgmBuffer(char* p_text, int size)
 {
   // Save program pointer
   p_buf = p_text;
+  // Save program buffer size(zero if there is no buffer)
+  p_buf_size = (p_text == nullptr) ? 0 : size;
   // Clear functions index
   func_index = 0;
   // Clear global variable index
@@ -80,6 +82,9 @@ bool LittleC::Prescan()
     func_index = 0;
     // Initialize global variable index
     gvar_index = 0;
+    // Initialize nesting depth guard: global variable initializers are
+    // evaluated during prescan and use the guarded expression parser
+    nest_depth = 0;
     // Undefined token before prescan
     tok = UNDEFTOK;
 
@@ -126,8 +131,10 @@ bool LittleC::Prescan()
               func_table[func_index].func_name = fn;
               func_index++;
               while((*token != ')') && (tok != END)) get_token();
-              prog++;
-              // now prog points to opening curly brace of function
+              // get_token() already left prog just past the ')', and it skips
+              // whitespace itself, so no manual advance is needed there: it
+              // would swallow the opening brace in "void main(){" style
+              // declarations and read past the buffer at the end of program.
             }
           }
           else // If it not - must be global var
@@ -161,7 +168,10 @@ bool LittleC::Prescan()
             func_table[func_index].func_name = fn;
             func_index++;
             while((*prog != ')') && (*prog != '\0')) prog++;
-            prog++;
+            // Advance only past ')': at the end of the program(missing
+            // closing parenthesis) prog must stay on the terminator,
+            // otherwise next get_token() reads past the buffer.
+            if(*prog == ')') prog++;
             // prog points to opening curly brace of function
           }
         }
@@ -338,6 +348,9 @@ bool LittleC::Execute()
   functos = 0;
   // Initialize local variable stack index
   lvartos = gvar_index;
+  // Initialize nesting depth guard(increment/decrement are balanced on all
+  // paths, so it should be zero already - this is just a safety measure)
+  nest_depth = 0;
   // Clear ret value
   ret_data = {0};
 
@@ -386,6 +399,17 @@ bool LittleC::interp_block(void)
 
   // Save local var stack index
   int lvartemp = lvartos;
+
+  // Limit nesting depth: every nested block, function call or parenthesized
+  // expression recurses on the native task stack which is only a few
+  // kilobytes, so runaway recursion in a script(deeply nested blocks or a
+  // recursive function) would overflow it and corrupt memory. Check before
+  // increment to keep the counter balanced with the early return.
+  if(nest_depth >= NEST_DEPTH_MAX)
+  {
+    return sntx_err(TOO_DEEP_NESTING);
+  }
+  nest_depth++;
 
   do
   {
@@ -462,6 +486,9 @@ bool LittleC::interp_block(void)
 
   // Reset the local var stack
   lvartos = lvartemp;
+
+  // Leaving this nesting level
+  nest_depth--;
 
   return result;
 }
@@ -1232,6 +1259,14 @@ bool LittleC::exec_switch(void)
       while(brace)
       {
         get_token();
+        // End of program reached with unbalanced braces(truncated or
+        // malformed script) - report an error, otherwise this loop never ends
+        // since get_token() returns END forever.
+        if(tok == END)
+        {
+          result = sntx_err(UNBAL_BRACES);
+          break;
+        }
         if(*token == '{') brace++;
         else if(*token == '}') brace--;
         else ; // Do nothing - MISRA rule
@@ -1331,6 +1366,17 @@ bool LittleC::eval_exp00(data_type& data, bool evaluate_comma)
 {
   bool result = true;
 
+  // Limit nesting depth(shared counter with interp_block()): every
+  // parenthesized subexpression recurses through this function on the
+  // native task stack(~300 bytes per level), so a deeply nested expression
+  // would overflow it. Check before increment to keep the counter balanced
+  // with the early return.
+  if(nest_depth >= NEST_DEPTH_MAX)
+  {
+    return sntx_err(TOO_DEEP_NESTING);
+  }
+  nest_depth++;
+
   if(!*token)
   {
     result = sntx_err(NO_EXP);
@@ -1351,6 +1397,9 @@ bool LittleC::eval_exp00(data_type& data, bool evaluate_comma)
       result = eval_exp0(data);
     }
   }
+
+  // Leaving this nesting level
+  nest_depth--;
 
   return result;
 }
@@ -2042,7 +2091,10 @@ bool LittleC::get_token(void)
           // Check character
           if((*prog == '\r') || (*prog == '\n') || (*prog == '\0')) result = sntx_err(SYNTAX);
         }
-        prog++; // Pass after "
+        // Pass closing quote. On unterminated string(error is set above) prog
+        // must stay on the terminator, otherwise following get_token() calls
+        // would read past the end of the program buffer.
+        if(*prog == '"') prog++;
         *temp = '\0';
         token_type = STRING;
       }
@@ -2110,6 +2162,11 @@ bool LittleC::get_token(void)
 // *****************************************************************************
 bool LittleC::get_string_token(int idx)
 {
+  // Index is a calculated value: arithmetic on a string literal in a script
+  // produces an arbitrary number with type STRING. It must be validated
+  // before use, otherwise prog becomes a wild pointer and tokenization
+  // reads(and can fault) outside of the program buffer.
+  if((idx < 0) || (idx >= p_buf_size) || (p_buf[idx] != '"')) return sntx_err(NOT_STRING);
   const char* tmp = prog; // Save current program idx
   prog = &p_buf[idx]; // Set prog to string token
   bool result = get_token(); // Get token to fill token[]

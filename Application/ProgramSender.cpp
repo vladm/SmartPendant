@@ -156,6 +156,14 @@ Result ProgramSender::Show()
 // *****************************************************************************
 Result ProgramSender::Hide()
 {
+  // Stop streaming. TimerExpired() isn't called for a hidden screen, so
+  // streaming can't continue anyway, and Show() resets the text box selection
+  // to the first line: leaving the run flag set would restart the program
+  // from the beginning without a Run press when the user returns to the
+  // screen(spontaneous spindle/motion start).
+  run = false;
+  finished = true;
+
   // Delete encoder callback handler
   InputDrv::GetInstance().DeleteEncoderCallbackHandler(enc_cble);
 

@@ -5,6 +5,7 @@
 # Build folders
 Debug
 Release
+build
 
 # Except Release hex
 !release/SmartPendant.hex

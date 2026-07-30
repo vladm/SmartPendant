@@ -518,8 +518,13 @@ Result DirectControlScr::ProcessCallback(const void* ptr)
         {
           // Set speed override to 100%
           grbl_comm.SpeedReset();
-          // Set spindle speed to current value to match previous value with override
-          grbl_comm.SetSpindleSpeed(spindle_dw.GetNumber(), grbl_comm.IsSpindleCCW());
+          // Set spindle speed to current value to match previous value with
+          // override, but only if spindle is already running: SetSpindleSpeed()
+          // sends M3/M4 which would start a stopped spindle on a mere tap.
+          if(grbl_comm.IsSpindleRunning())
+          {
+            grbl_comm.SetSpindleSpeed(spindle_dw.GetNumber(), grbl_comm.IsSpindleCCW());
+          }
         }
         // Select spindle data window
         spindle_dw.SetSelected(true);
