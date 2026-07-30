@@ -34,7 +34,7 @@ extern USBD_HandleTypeDef hUsbDeviceFS;
 // ***   Units strings array initialization   **********************************
 // *****************************************************************************
 const char* const GrblComm::units[MEASUREMENT_SYSTEM_CNT] = {"mm", "inch", "deg"};
-const char* const GrblComm::speed_units[MEASUREMENT_SYSTEM_CNT] = {"mm/min", "inches/min", "deg/min"};
+const char* const GrblComm::feed_units[MEASUREMENT_SYSTEM_CNT] = {"mm/min", "inches/min", "deg/min"};
 const int32_t GrblComm::scaler[MEASUREMENT_SYSTEM_CNT] = {1000, 10000, 1000}; // 1 um for metric(base unit mm), 1 tenths for imperial(base unit inch), 0.001 degree
 const uint8_t GrblComm::precision[MEASUREMENT_SYSTEM_CNT] = {3u, 4u, 3u}; // 0.000 for metric, 0.0000 for imperial, 0.000 for degrees
 
@@ -545,6 +545,26 @@ int32_t GrblComm::GetProbePosition(uint8_t axis)
 }
 
 // *****************************************************************************
+// ***   Public: GetAxisMaxFeedX100   ******************************************
+// *****************************************************************************
+uint32_t GrblComm::GetAxisMaxFeedX100(uint8_t axis)
+{
+  uint32_t rate = 0u;
+
+  if(axis < AXIS_CNT)
+  {
+    rate = (uint32_t)(axis_max_feed[axis] * 100.0f);
+    // Controller settings are always metric, so for imperial reports value
+    // have to be converted. Rotary axes are degrees in both systems.
+    if(!IsRotaryAxis(axis) && !IsMetric()) rate = rate * 10u / 254u;
+  }
+
+  // Return value multiplied by 100 to match feed_x100 format
+  return rate;
+}
+
+
+// *****************************************************************************
 // ***   Public: GetCmdResult   ************************************************
 // *****************************************************************************
 GrblComm::status_t GrblComm::GetCmdResult(uint32_t id)
@@ -703,6 +723,10 @@ Result GrblComm::Jog(uint8_t axis, int32_t distance, uint32_t feed_x100, bool is
 
       // Set ID for command
       msg.id = GetNextId();
+
+      // Clamp feed to the axis maximum rate($110 + axis) if it is known
+      uint32_t max_feed_x100 = GetAxisMaxFeedX100(axis);
+      if((max_feed_x100 != 0u) && (feed_x100 > max_feed_x100)) feed_x100 = max_feed_x100;
 
       // Buffers for distance and feed strings
       char distance_str[16u];
@@ -1440,6 +1464,19 @@ void GrblComm::ParseSettings(char* data)
         break;
 
       // ***********************************************************************
+      case 110:
+      case 111:
+      case 112:
+      case 113:
+      case 114:
+      case 115:
+        // Maximum rate for the axis. Settings are always metric(mm/min for
+        // linear and degrees/min for rotary axes). No settings_changed flag:
+        // screens don't have to be reinitialized because of it.
+        ParseDecimal(axis_max_feed[setting_num - 110u], s);
+        break;
+
+      // ***********************************************************************
       case 30:
         if(spindle_speed_max != atol(s))
         {
@@ -1580,13 +1617,13 @@ void GrblComm::ParseFeedSpeed(char* data)
   // ParseDecimal check for nullptr, so can be called even if data only partially there
   if(ParseDecimal(grbl_feed_rate, value_ptr[0u])) grbl_changed.feed = true;
   if(ParseDecimal(spindle_rpm_programmed, value_ptr[1u])) grbl_changed.rpm = true;
-  if(ParseDecimal(spindle_rpm_actual, value_ptr[2u])) grbl_changed.rpm = true;
+  if(ParseDecimal(spindle_rpm_actual, value_ptr[2u])) grbl_changed.rpm_actual = true;
   // No actual speed in data - set actual RPM to zero
   if((value_ptr[2u] == nullptr) && (spindle_rpm_actual != 0.0f))
   {
     spindle_rpm_actual = 0.0f;
     // Set changed flag so UI can update displayed value
-    grbl_changed.rpm = true;
+    grbl_changed.rpm_actual = true;
   }
 }
 
@@ -1658,6 +1695,11 @@ void GrblComm::ParseData(void)
       else if(!strncmp(line, "FS:", 3))
       {
         ParseFeedSpeed(line + 3);
+      }
+      else if(!strncmp(line, "F:", 2))
+      {
+        // Builds without spindle report bare feed value instead of FS:
+        if(ParseDecimal(grbl_feed_rate, line + 2)) grbl_changed.feed = true;
       }
       else if(!strncmp(line, "WCO:", 4))
       {
@@ -1760,7 +1802,7 @@ void GrblComm::ParseData(void)
       // Tool Length Offset
       grbl_changed.tlo = ParseAxisData(line + 1 + 4, grbl_tool_length_offset);
     }
-    if(!strncmp(&line[1], "AXS:", 4))
+    else if(!strncmp(&line[1], "AXS:", 4))
     {
       // Move line pointer to number of axis
       line += 4 + 1;
@@ -1808,6 +1850,16 @@ void GrblComm::ParseData(void)
   {
     grbl_alarm = (uint8_t)atoi(line + 6);
     grbl_changed.alarm = true;
+  }
+  else if(!strncmp(line, "Grbl", 4)) // Welcome banner: "Grbl X.Xx [...]" or "GrblHAL X.Xx [...]"
+  {
+    // Controller (re)booted - all cached data is stale. Set state to UNKNOWN:
+    // transition out of it will trigger controller settings request.
+    grbl_state = UNKNOWN;
+    grbl_changed.state = true;
+    // MPG mode is runtime state and cleared by the controller reset
+    grbl_mpgMode = false;
+    grbl_changed.mpg = true;
   }
   else
   {

@@ -51,10 +51,10 @@ void LittleC::SetPgmBuffer(char* p_text, int size)
 bool LittleC::SetOutputBuf(char* p_obuf, int size)
 {
   p_output = p_obuf;
-  output_size = size;
+  output_size = (p_obuf == nullptr) ? 0u : size;
   cur_pos = 0;
   // Return true if buffer is exist
-  return ((p_obuf != nullptr) && (size != 0));
+  return ((p_output != nullptr) && (size != 0));
 }
 
 // *****************************************************************************

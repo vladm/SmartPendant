@@ -124,9 +124,6 @@ Result DirectControlScr::Show()
   // Version string
   version.Show(1);
 
-  // Update scale buttons
-  UpdateScaleButtons();
-
   // Axis data
   for(uint32_t i = 0u; i < grbl_comm.GetLimitedNumberOfAxis(NumberOf(dw)); i++)
   {
@@ -143,6 +140,9 @@ Result DirectControlScr::Show()
     dw[i].SetSelected(false);
   }
 
+  // Update scale buttons
+  UpdateScaleButtons();
+
   // Clear jog values and directions: encoder clicks buffered between the last
   // timer tick and Hide() are never consumed while the screen is hidden and
   // would cause unexpected movement on the first tick after the screen is
@@ -153,7 +153,7 @@ Result DirectControlScr::Show()
     axis_jog_dir[i] = 0;
   }
   // Clear spindle speed change value for the same reason
-  jog_val = 0;
+  spindle_jog_val = 0;
 
   // In Lathe mode show Radius/Diameter string on top of X window and button to change it
   if(grbl_comm.GetModeOfOperation() == GrblComm::MODE_OF_OPERATION_LATHE)
@@ -331,8 +331,8 @@ Result DirectControlScr::TimerExpired(uint32_t interval)
   {
     // If spindle is running - control button is stop button
     spindle_ctrl_btn.SetString("STOP");
-    // Update current speed
-    spindle_dw.SetNumber(grbl_comm.GetSpindleSpeed());
+    // Update current speed - only if 1 second passed after last change
+    if(RtosTick::CheckTimeDifferenceMs(spindle_change_timestamp, 1000u)) spindle_dw.SetNumber(grbl_comm.GetSpindleSpeed());
   }
   else
   {
@@ -341,12 +341,14 @@ Result DirectControlScr::TimerExpired(uint32_t interval)
   }
 
   // Spindle speed
-  if(jog_val != 0)
+  if(spindle_jog_val != 0)
   {
     // Update speed in data window
-    spindle_dw.SetNumber(spindle_dw.GetNumber() + jog_val * scale);
+    spindle_dw.SetNumber(spindle_dw.GetNumber() + spindle_jog_val * scale);
     // clear jog value
-    jog_val = 0;
+    spindle_jog_val = 0;
+    // Save timestamp to prevent data window update within 1 second after change
+    spindle_change_timestamp = RtosTick::GetTimeMs();
     // Update spindle speed if it is running
     if(grbl_comm.IsSpindleRunning())
     {
@@ -564,7 +566,7 @@ Result DirectControlScr::ProcessEncoderCallback(DirectControlScr* obj_ptr, void*
       // Spindle speed can be changed by the encoder only if spindle data
       // window is explicitly selected, otherwise wheel rotation right after
       // the screen is shown(no axis selected yet) would change spindle speed.
-      ths.jog_val += enc_val;
+      ths.spindle_jog_val += enc_val;
     }
     else
     {

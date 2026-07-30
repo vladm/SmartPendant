@@ -28,6 +28,9 @@ Result MsgBox::Setup(const char* title, const char* text, uint8_t title_scale)
   // Width of box
   static const uint32_t width = display_drv.GetScreenW();
 
+  // By default all boxes npon-modal
+  modal = false;
+
   // MsgBox caption
   msg_box_caption.SetParams(title, 0, 0, COLOR_WHITE, Font_12x16::GetInstance());
   msg_box_caption.SetScale(title_scale);
@@ -88,8 +91,11 @@ Result MsgBox::Show(uint32_t z)
   list.Show(z+1);
 
   // Soft Buttons
-  left_btn.Show(z+2);
-  right_btn.Show(z+3);
+  if(!modal)
+  {
+    left_btn.Show(z+2);
+    right_btn.Show(z+3);
+  }
 
   // Set encoder callback handler
   InputDrv::GetInstance().AddEncoderCallbackHandler(AppTask::GetCurrent(), reinterpret_cast<CallbackPtr>(ProcessEncoderCallback), this, enc_cble);
@@ -162,7 +168,7 @@ Result MsgBox::ProcessButtonCallback(MsgBox* obj_ptr, void* ptr)
         ; // Do nothing - MISRA rule
       }
     }
-    else // Process physical buttons
+    else if(!ths.modal) // Process physical buttons
     {
       // Get pressed button
       InputDrv::ButtonCallbackData btn = *((InputDrv::ButtonCallbackData*)ptr);
@@ -195,6 +201,10 @@ Result MsgBox::ProcessButtonCallback(MsgBox* obj_ptr, void* ptr)
       {
         ; // Do nothing - MISRA rule
       }
+    }
+    else
+    {
+      ; // Do nothing - MISRA rule
     }
 
     // Set ok result

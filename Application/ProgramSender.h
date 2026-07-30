@@ -28,6 +28,7 @@
 #include "GrblComm.h"
 #include "InputDrv.h"
 #include "Menu.h"
+#include "MsgBox.h"
 #include "TextBox.h"
 
 // *****************************************************************************
@@ -118,6 +119,9 @@ class ProgramSender : public IScreen
 
     // Text box for program
     TextBox text_box;
+
+    // Message box to display errors
+    MsgBox& msg_box;
 
     // Soft Buttons
     UiButton& left_btn;

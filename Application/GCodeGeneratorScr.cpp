@@ -142,10 +142,10 @@ Result GCodeGeneratorScr::ProcessMenuOkCallback(GCodeGeneratorScr* obj_ptr, void
             // Variable to store allocated size
             uint32_t size = 0u;
             // Allocate buffer for the result
-            char *txt = ProgramSender::GetInstance().AllocateDataBuffer(size);
+            char *txt = ths.AllocateOutputBuffer(size);
 
             // Set output buffer and if successful
-            if(ths.interpreter.SetOutputBuf(txt, size))
+            if(txt != nullptr)
             {
               // Generate GCode for ProgramSender
               if(ths.interpreter.Execute())
@@ -284,13 +284,8 @@ Result GCodeGeneratorScr::ProcessMenuOkCallback(GCodeGeneratorScr* obj_ptr, void
       {
         // Get file size
         uint32_t fsize = f_size(&SDFile) + 1u;
-        // Clear interpreter output pointer: it may still reference the
-        // buffer released below and must not be written after the free
-        ths.interpreter.SetOutputBuf(nullptr, 0);
-        // Release buffer in program sender before allocation
-        ProgramSender::GetInstance().ReleaseDataPointer();
         // Allocate memory for data and check if allocation was successful
-        if(ths.AllocateDataBuffer(fsize) != nullptr)
+        if(ths.AllocateProgramBuffer(fsize) != nullptr)
         {
           // Read bytes
           UINT wbytes = 0u;
@@ -307,48 +302,59 @@ Result GCodeGeneratorScr::ProcessMenuOkCallback(GCodeGeneratorScr* obj_ptr, void
           // Variable to store allocated size
           uint32_t size = 0u;
           // Allocate buffer for the result
-          char *txt = ProgramSender::GetInstance().AllocateDataBuffer(size);
-          // Set output buffer and if successful
-          ths.interpreter.SetOutputBuf(txt, size);
+          char *txt = ths.AllocateOutputBuffer(size);
 
-          // Prescan program to find all global variables and functions
-          if(loaded && ths.interpreter.Prescan()) // If read and prescan successful
+          // Set output buffer and if successful
+          if((txt != nullptr) && loaded)
           {
-            uint32_t i = 0u;
-            // Copy string. Last array element reserved for null-terminator
-            // written after the cycle, so i can't exceed NumberOf() - 1u.
-            for(i = 0u; i < NumberOf(script_caption_str) - 1u; i++)
+            // Prescan program to find all global variables and functions
+            if(ths.interpreter.Prescan()) // If prescan successful
             {
-              // Copy character
-              ths.script_caption_str[i] = ths.menu_items[idx].text[i];
-              // If end of string reached or '.' character found
-              if((ths.menu_items[idx].text[i] == '\0') || (ths.menu_items[idx].text[i] == '.'))
+              uint32_t i = 0u;
+              // Copy string. Last array element reserved for null-terminator
+              // written after the cycle, so i can't exceed NumberOf() - 1u.
+              for(i = 0u; i < NumberOf(script_caption_str) - 1u; i++)
               {
-                break; // break the cycle
+                // Copy character
+                ths.script_caption_str[i] = ths.menu_items[idx].text[i];
+                // If end of string reached or '.' character found
+                if((ths.menu_items[idx].text[i] == '\0') || (ths.menu_items[idx].text[i] == '.'))
+                {
+                  break; // break the cycle
+                }
               }
+              // Null-terminate it
+              ths.script_caption_str[i] = '\0';
+              // Set loaded script tab caption
+              ths.tabs.SetText(0u, ths.script_caption_str, nullptr, Font_10x18::GetInstance());
+              // Populate menu with global variables
+              ths.UpdateMenuStrings();
+              ths.menu.Show(100);
+              ths.tabs.SetSelectedTab(0u);
+              // We don't need this data pointer - it will allocate again before execution
+              ths.ReleaseOutputPointer();
             }
-            // Null-terminate it
-            ths.script_caption_str[i] = '\0';
-            // Set loaded script tab caption
-            ths.tabs.SetText(0u, ths.script_caption_str, nullptr, Font_10x18::GetInstance());
-            // Populate menu with global variables
-            ths.UpdateMenuStrings();
-            ths.menu.Show(100);
-            ths.tabs.SetSelectedTab(0u);
-            // Interpreter is done with the output buffer - clear the pointer
-            // before the buffer is released, otherwise a later variable
-            // reset(Cancel) or error report would write into freed memory
-            ths.interpreter.SetOutputBuf(nullptr, 0);
-            // We don't need this data pointer - it will allocate again before execution
-            ProgramSender::GetInstance().ReleaseDataPointer();
+            else
+            {
+              // Copy error message
+              strncpy(ths.change_box_caption_str, txt, NumberOf(change_box_caption_str) - 1u);
+              // Null-terminate it
+              ths.change_box_caption_str[NumberOf(change_box_caption_str) - 1u] = '\0';
+              // Display message box with an error
+              ths.msg_box.Setup("Error", ths.change_box_caption_str);
+              // Show message box with request
+              ths.msg_box.Show(10000u);
+              // Prescan failed - release all allocated memory
+              ths.ReleaseProgramPointer();
+            }
           }
           else
           {
-            // If read or prescan failed - release allocated memory
-            ths.ReleaseDataPointer();
+            // If read or output buffer allocation failed - release all allocated memory
+            ths.ReleaseProgramPointer();
             // Display message box with an error: for failed prescan the
             // interpreter wrote error text into the output buffer
-            ths.msg_box.Setup("Error", loaded ? txt : "Can't read the file!\n");
+            ths.msg_box.Setup("Error", loaded ? "Can't allocate buffer\nfor the result.\n" : "Can't read the file!\n");
             // Show message box with request
             ths.msg_box.Show(10000u);
           }
@@ -409,7 +415,7 @@ Result GCodeGeneratorScr::ProcessMenuCancelCallback(GCodeGeneratorScr* obj_ptr, 
     else
     {
       // If cancel pressed - release allocated memory
-      ths.ReleaseDataPointer();
+      ths.ReleaseProgramPointer();
     }
 
     // Set ok result
@@ -548,11 +554,8 @@ Result GCodeGeneratorScr::ProcessCallback(const void* ptr)
   // Process message box with an error
   else if(ptr == &msg_box)
   {
-    // Interpreter may still hold the buffer as the output(error text was
-    // written into it) - clear the pointer before the buffer is released
-    interpreter.SetOutputBuf(nullptr, 0);
     // Release buffer in program sender after message box with an error cleared
-    ProgramSender::GetInstance().ReleaseDataPointer();
+    ReleaseOutputPointer();
   }
   else
   {
@@ -609,13 +612,13 @@ void GCodeGeneratorScr::UpdateMenuStrings(void)
 }
 
 // *****************************************************************************
-// ***   Private: AllocateDataBuffer   *****************************************
+// ***   Private: AllocateProgramBuffer   **************************************
 // *****************************************************************************
-char* GCodeGeneratorScr::AllocateDataBuffer(uint32_t size)
+char* GCodeGeneratorScr::AllocateProgramBuffer(uint32_t size)
 {
-  // Always release data buffer before allocate it again
-  ReleaseDataPointer();
-  // Allocate memory for data
+  // Always release program buffer before allocate it again
+  ReleaseProgramPointer();
+  // Allocate memory for program
   p_text = new(std::nothrow) char[size];
   // If allocation is successful
   if(p_text != nullptr)
@@ -630,10 +633,12 @@ char* GCodeGeneratorScr::AllocateDataBuffer(uint32_t size)
 }
 
 // *****************************************************************************
-// ***   Private: ReleaseDataPointer   *****************************************
+// ***   Private: ReleaseProgramPointer   **************************************
 // *****************************************************************************
-void GCodeGeneratorScr::ReleaseDataPointer()
+void GCodeGeneratorScr::ReleaseProgramPointer()
 {
+  // Output buffer lays after the program. Release it before releasing buffer for program.
+  ReleaseOutputPointer();
   // If buffer was previously allocated
   if(p_text != nullptr)
   {
@@ -648,6 +653,33 @@ void GCodeGeneratorScr::ReleaseDataPointer()
   tabs.SetText(0u, "----", nullptr, Font_10x18::GetInstance());
   // Update free memory info
   Application::GetInstance().UpdateMemoryInfo();
+}
+
+// *****************************************************************************
+// ***   Private: AllocateOutputBuffer   ***************************************
+// *****************************************************************************
+char* GCodeGeneratorScr::AllocateOutputBuffer(uint32_t& size)
+{
+  // Release previous allocated pointer(if any)
+  ReleaseOutputPointer();
+  // Allocate buffer by ProgramSender
+  char *txt = ProgramSender::GetInstance().AllocateDataBuffer(size);
+  // Set output buffer and if successful
+  interpreter.SetOutputBuf(txt, size);
+  // Return pointer to buffer - may be used to check if allocation is successful
+  return txt;
+}
+
+// *****************************************************************************
+// ***   Private: ReleaseOutputPointer   ***************************************
+// *****************************************************************************
+void GCodeGeneratorScr::ReleaseOutputPointer()
+{
+  // Interpreter may still hold the buffer as the output(error text was
+  // written into it) - clear the pointer before the buffer is released
+  interpreter.SetOutputBuf(nullptr, 0);
+  // Release buffer in program sender after message box with an error cleared
+  ProgramSender::GetInstance().ReleaseDataPointer();
 }
 
 // *****************************************************************************

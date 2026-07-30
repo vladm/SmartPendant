@@ -84,7 +84,7 @@ class DirectControlScr : public IScreen
     // Version text with oscillator frequency
     char ver_txt[40u] = {0};
     // Value for speed
-    int32_t jog_val = 0;
+    int32_t spindle_jog_val = 0;
     // Jogging values
     int32_t axis_jog_val[GrblComm::AXIS_CNT] = {0};
     // Jogging direction
@@ -94,6 +94,9 @@ class DirectControlScr : public IScreen
     GrblComm::Axis_t axis = GrblComm::AXIS_CNT;
     // Scale to move axis
     int32_t scale = 1u;
+
+    // Timestamp to change spindle speed
+    uint32_t spindle_change_timestamp = 0u;
 
     // String for caption
     String axis_names[GrblComm::AXIS_CNT];

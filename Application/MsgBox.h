@@ -52,6 +52,11 @@ class MsgBox
     void SetCallback(AppTask* task, CallbackPtr func = nullptr, void* param = nullptr);
 
     // *************************************************************************
+    // ***   Public: SetModal function   ***************************************
+    // *************************************************************************
+    void SetModal(bool in_modal) {modal = in_modal;}
+
+    // *************************************************************************
     // ***   Public: Show   ****************************************************
     // *************************************************************************
     Result Show(uint32_t z);
@@ -78,6 +83,10 @@ class MsgBox
     AppTask* callback_task = nullptr;
     CallbackPtr callback_func = nullptr;
     void* callback_param = nullptr;
+
+    // If this flag set - there won't be any buttons to close dialog.
+    // Resets in Setup() function.
+    bool modal = false;
 
     // Result variable
     Result selection = Result::ERR_CANCEL;

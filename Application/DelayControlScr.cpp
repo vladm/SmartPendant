@@ -78,7 +78,7 @@ Result DelayControlScr::Setup(int32_t y, int32_t height)
   dw_feed.SetDataFont(Font_8x12::GetInstance(), 2u);
   dw_feed.SetLimits(1, 10000);
   dw_feed.SetNumber(300);
-  dw_feed.SetUnits(grbl_comm.GetReportSpeedUnits(), DataWindow::RIGHT);
+  dw_feed.SetUnits(grbl_comm.GetReportFeedUnits(), DataWindow::RIGHT);
   dw_feed.SetCallback(AppTask::GetCurrent());
   dw_feed.SetActive(true);
   // Feed caption

@@ -186,6 +186,10 @@ Result RotaryTableScr::Show()
     dw_real_name.Show(100);
   }
 
+  // Clear encoder values
+  z_val = 0;
+  radius_change = 0;
+
   // Set encoder callback handler
   InputDrv::GetInstance().AddEncoderCallbackHandler(AppTask::GetCurrent(), reinterpret_cast<CallbackPtr>(ProcessEncoderCallback), this, enc_cble);
   // Set callback handler for left and right buttons
@@ -374,6 +378,14 @@ Result RotaryTableScr::TimerExpired(uint32_t interval)
         arc_dw.SetNumber(arc_length);
       }
     }
+    // *** TODO: REMOVE ! ******************************************************
+//    {
+//      double tpx = dpx;
+//      double tpy = dpy;
+//      FindArcSecondPoint(tpx, tpy, dcx, dcy, abs(dl), dl >= 0);
+//      cir.Move(tpx, tpy);
+//    }
+    // *** TODO: REMOVE ! ******************************************************
   }
 
   // Return result

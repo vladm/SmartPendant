@@ -49,18 +49,18 @@ Result ProgramSender::Setup(int32_t y, int32_t height)
   // Set callback
   menu.SetCallback(AppTask::GetCurrent(), this, reinterpret_cast<CallbackPtr>(ProcessMenuOkCallback), reinterpret_cast<CallbackPtr>(ProcessMenuCancelCallback));
   // Setup menu
-  menu.Setup(menu_items, NumberOf(menu_items), 0, y, display_drv.GetScreenW(), height - Font_8x12::GetInstance().GetCharH() * 2u - BORDER_W*2);
+  menu.Setup(menu_items, NumberOf(menu_items), 0, y, display_drv.GetScreenW(), height - Font_8x12::GetInstance().GetCharH() * 2u - BORDER_W * 2);
   // Setup text box
-  text_box.Setup(0, y, display_drv.GetScreenW(), height - Font_8x12::GetInstance().GetCharH() * 2u - BORDER_W*2 - CTRL_HEIGHT);
+  text_box.Setup(0, y, display_drv.GetScreenW(), height - Font_8x12::GetInstance().GetCharH() * 2u - BORDER_W * 2 - CTRL_HEIGHT);
 
   // Feed override
-  feed_dw.SetParams(BORDER_W, y + height - Font_8x12::GetInstance().GetCharH() * 2u - BORDER_W - BORDER_W - CTRL_HEIGHT, (display_drv.GetScreenW() - 2*CTRL_HEIGHT - 3*BORDER_W) / 2, CTRL_HEIGHT, 5u, 0u);
+  feed_dw.SetParams(BORDER_W, y + height - Font_8x12::GetInstance().GetCharH() * 2u - BORDER_W - BORDER_W - CTRL_HEIGHT, (display_drv.GetScreenW() - 2 * CTRL_HEIGHT - 3 * BORDER_W) / 2, CTRL_HEIGHT, 5u, 0u);
   feed_dw.SetBorder(BORDER_W, COLOR_DARKBLUE);
   feed_dw.SetDataFont(Font_12x16::GetInstance());
   feed_dw.SetNumber(0);
   feed_dw.SetUnits("%", DataWindow::RIGHT);
   feed_dw.SetCallback(AppTask::GetCurrent());
-  feed_name.SetParams("FEED", feed_dw.GetStartX() + BORDER_W*3/2, feed_dw.GetStartY() + BORDER_W*3/2, COLOR_WHITE, Font_6x8::GetInstance());
+  feed_name.SetParams("FEED", feed_dw.GetStartX() + BORDER_W * 3 / 2, feed_dw.GetStartY() + BORDER_W * 3 / 2, COLOR_WHITE, Font_6x8::GetInstance());
   // Speed override
   speed_dw.SetParams(feed_dw.GetEndX() + BORDER_W, feed_dw.GetStartY(), feed_dw.GetWidth(), feed_dw.GetHeight(), 5u, 0u);
   speed_dw.SetBorder(BORDER_W, COLOR_DARKBLUE);
@@ -68,7 +68,7 @@ Result ProgramSender::Setup(int32_t y, int32_t height)
   speed_dw.SetNumber(0);
   speed_dw.SetUnits("%", DataWindow::RIGHT);
   speed_dw.SetCallback(AppTask::GetCurrent());
-  speed_name.SetParams("SPEED", speed_dw.GetStartX() + BORDER_W*3/2, speed_dw.GetStartY() + BORDER_W*3/2, COLOR_WHITE, Font_6x8::GetInstance());
+  speed_name.SetParams("SPEED", speed_dw.GetStartX() + BORDER_W * 3 / 2, speed_dw.GetStartY() + BORDER_W * 3 / 2, COLOR_WHITE, Font_6x8::GetInstance());
   // Buttons for control flood coolant
   flood_btn.SetParams("F", speed_dw.GetEndX() + BORDER_W, speed_dw.GetStartY(), speed_dw.GetHeight(), speed_dw.GetHeight(), true);
   flood_btn.SetFont(Font_12x16::GetInstance());
@@ -292,8 +292,8 @@ Result ProgramSender::TimerExpired(uint32_t interval)
                     // Show the reason in the text box
                     text_box.AddLine("; ERROR: line >80 chars - STOPPED");
                     // And in the message box
-                    Application::GetInstance().GetMsgBox().Setup("PROGRAM STOPPED", "Line longer than 80 characters\nencountered during streaming.\nRemaining program was skipped.");
-                    Application::GetInstance().GetMsgBox().Show(10000u);
+                    msg_box.Setup("PROGRAM STOPPED", "Line longer than 80 characters\nencountered during streaming.\nRemaining program was skipped.", 1u);
+                    msg_box.Show(10000u);
                   }
                   else
                   {
@@ -312,8 +312,8 @@ Result ProgramSender::TimerExpired(uint32_t interval)
                   // Show the reason in the text box
                   text_box.AddLine("; ERROR: file read failed - STOPPED");
                   // And in the message box
-                  Application::GetInstance().GetMsgBox().Setup("PROGRAM STOPPED", "File read error encountered\nduring streaming.\nRemaining program was skipped.");
-                  Application::GetInstance().GetMsgBox().Show(10000u);
+                  msg_box.Setup("PROGRAM STOPPED", "File read error encountered\nduring streaming.\nRemaining program was skipped.", 1u);
+                  msg_box.Show(10000u);
                 }
               }
             }
@@ -428,7 +428,7 @@ Result ProgramSender::ProcessSpeedFeed()
       feed_val--;
     }
   }
-  else if (feed_val < 0)
+  else if(feed_val < 0)
   {
     if(feed_val < -10)
     {
@@ -460,7 +460,7 @@ Result ProgramSender::ProcessSpeedFeed()
       speed_val--;
     }
   }
-  else if (speed_val < 0)
+  else if(speed_val < 0)
   {
     if(speed_val < -10)
     {
@@ -560,40 +560,119 @@ Result ProgramSender::ProcessMenuOkCallback(ProgramSender* obj_ptr, void* ptr)
       }
       else
       {
-        // Clear text buffer to switch into line mode
-        ths.text_box.SetText(nullptr);
+        // Show message before the check: file is big(it doesn't fit into
+        // memory) and check can take a few seconds. Display task will render
+        // it while this task is busy reading the file.
+        ths.msg_box.Setup("CHECKING PROGRAM", "If program contains lines\nlonger than 80 characters\nit can't be loaded", 1u);
+        ths.msg_box.SetModal(true);
+        ths.msg_box.Show(10000u);
+        // Update Display
+        ths.display_drv.UpdateDisplay();
+        // Delay to let DisplayDrv to actually show message
+        RtosTick::DelayMs(50u);
 
-        // Buffer to read string
-        char str[128] = {0};
-        // Fill all visible lines
-        for(int32_t i = 0; i < ths.text_box.GetNumberOfVisibleLines(); i++)
+        // Current line number(1-based) for error reporting
+        uint32_t line_n = 1u;
+        // Current line length(line ending characters aren't counted)
+        uint32_t line_len = 0u;
+        // Number of the first line that is too long(0 - all lines are ok)
+        uint32_t long_line_n = 0u;
+        // Read bytes count
+        UINT rb = 0u;
+        // Chunk buffer: chunked f_read() is much faster than byte by byte f_gets()
+        char chunk[256u];
+
+        // Walk through the whole file to find lines longer than the line
+        // buffer: discovering such line mid-run would stop the program(see
+        // TimerExpired()), so it is better to refuse the file at open.
+        while((f_read(&SDFile, chunk, NumberOf(chunk), &rb) == FR_OK) && (rb > 0u))
         {
-          // Read line from file, break the cycle at the end of file
-          if(f_gets(str, NumberOf(str), &SDFile) == nullptr)
+          for(uint32_t i = 0u; i < rb; i++)
           {
-            // Close file - we can't continue
-            f_close(&SDFile);
-            // If beginning of program contains lines longer than 80 characters - show message
-            ths.text_box.SetText("; File read error");
-            // Break the cycle
-            break;
+            if(chunk[i] == '\n')
+            {
+              // End of line - count it and reset length
+              line_n++;
+              line_len = 0u;
+            }
+            else if(chunk[i] != '\r')
+            {
+              // Count content character and check the limit
+              line_len++;
+              if(line_len > 80u)
+              {
+                long_line_n = line_n;
+                break;
+              }
+            }
+            else
+            {
+              ; // Do nothing - MISRA rule
+            }
           }
-          // Null-terminate just in case
-          str[NumberOf(str) - 1] = '\0';
-          // If we read line longer than 80 characters + possible CR & LF characters
-          if(strlen(str) > 80 + 2)
+          // Break outer cycle if too long line is found
+          if(long_line_n != 0u) break;
+        }
+
+        // Hide message box
+        ths.msg_box.Hide();
+
+        // If program contains a line that is too long
+        if(long_line_n != 0u)
+        {
+          // Close file - program can't be streamed safely
+          f_close(&SDFile);
+          // Clear text buffer to switch into line mode
+          ths.text_box.SetText(nullptr);
+          // Show the reason with the line number. AddLine() copies the
+          // string, so local buffer is ok there.
+          char err_str[32u];
+          snprintf(err_str, NumberOf(err_str), "; Line %lu is longer", long_line_n);
+          ths.text_box.AddLine(err_str);
+          ths.text_box.AddLine("; than 80 characters!");
+        }
+        else
+        {
+          // Rewind file back to the beginning after the check
+          f_lseek(&SDFile, 0u);
+
+          // Clear text buffer to switch into line mode
+          ths.text_box.SetText(nullptr);
+
+          // Buffer to read string
+          char str[128] = {0};
+          // Fill all visible lines
+          for(int32_t i = 0; i < ths.text_box.GetNumberOfVisibleLines(); i++)
           {
-            // Close file - we can't continue
-            f_close(&SDFile);
-            // If beginning of program contains lines longer than 80 characters - show message
-            ths.text_box.SetText("; Program contain lines longer\n\r; than 80 characters");
-            // Break the cycle
-            break;
-          }
-          else
-          {
-            // Set this line to text_box
-            ths.text_box.AddLine(str);
+            // Read line from file, break the cycle at the end of file
+            if(f_gets(str, NumberOf(str), &SDFile) == nullptr)
+            {
+              // Close file - we can't continue
+              f_close(&SDFile);
+              // Show message
+              ths.text_box.SetText("; File read error");
+              // Break the cycle
+              break;
+            }
+            // Null-terminate just in case
+            str[NumberOf(str) - 1] = '\0';
+            // If we read line longer than 80 characters + possible CR & LF
+            // characters. Should never happen after the check above - kept
+            // as a backstop.
+            if(strlen(str) > 80 + 2)
+            {
+              // Close file - we can't continue
+              f_close(&SDFile);
+              // Show message
+              ths.text_box.SetText("; Program contain lines longer\n\r; than 80 characters");
+              // Break the cycle
+              break;
+            }
+            else
+            {
+              // Set this line to text_box
+              ths.text_box.AddLine(str);
+            }
           }
         }
       }
@@ -708,8 +787,7 @@ Result ProgramSender::ProcessCallback(const void* ptr)
   // Process Reset button
   else if((ptr == &middle_btn) && (middle_btn.IsActive()))
   {
-    // Stop timer to prevent queue overflow since SD card operations can take some
-    // time.
+    // Stop timer to prevent queue overflow since SD card operations can take some time.
     AppTask::GetCurrent()->StopTimer();
 
     // Clear text box
@@ -859,6 +937,11 @@ char* ProgramSender::AllocateDataBuffer(uint32_t& size)
     // Add null-terminator to the first element
     p_text[0] = '\0';
   }
+  else
+  {
+    // If allocation unsuccessful - clear size
+    size = 0u;
+  }
   // Set buffer(or nullptr) to textbox
   text_box.SetText(p_text);
   // Update free memory info
@@ -933,6 +1016,7 @@ Result ProgramSender::ProcessEncoderCallback(ProgramSender* obj_ptr, void* ptr)
 // *****************************************************************************
 // ***   Private constructor   *************************************************
 // *****************************************************************************
-ProgramSender::ProgramSender() : left_btn(Application::GetInstance().GetLeftButton()),
+ProgramSender::ProgramSender() : msg_box(Application::GetInstance().GetMsgBox()),
+                                 left_btn(Application::GetInstance().GetLeftButton()),
                                  middle_btn(Application::GetInstance().GetMiddleButton()),
                                  right_btn(Application::GetInstance().GetRightButton()) {};

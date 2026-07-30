@@ -433,14 +433,14 @@ class GrblComm : public AppTask
     inline int32_t GetReportUnitsScaler(uint8_t axis) {return (IsRotaryAxis(axis) ? scaler[MEASUREMENT_SYSTEM_ROTARY] : GetReportUnitsScaler());}
 
     // *************************************************************************
-    // ***   Public: GetSpeedScaler function   *********************************
+    // ***   Public: GetFeedScaler function   **********************************
     // *************************************************************************
-    inline int32_t GetSpeedScaler(uint8_t ms) {return ((ms == MEASUREMENT_SYSTEM_METRIC) ? 1 : 1);} // 1 mm/min or 1 inch/min or 1 degree/min
+    inline int32_t GetFeedScaler(uint8_t ms) {return ((ms == MEASUREMENT_SYSTEM_METRIC) ? 1 : 1);} // 1 mm/min or 1 inch/min or 1 degree/min
 
     // *************************************************************************
-    // ***   Public: GetReportSpeedScaler function   ***************************
+    // ***   Public: GetReportFeedScaler function   ****************************
     // *************************************************************************
-    inline int32_t GetReportSpeedScaler() {return GetSpeedScaler(measurement_system);}
+    inline int32_t GetReportFeedScaler() {return GetFeedScaler(measurement_system);}
 
     // *************************************************************************
     // ***   Public: GetUnitsPrecision function   ******************************
@@ -489,9 +489,9 @@ class GrblComm : public AppTask
     inline static const char* GetUnits(uint8_t ms) {return units[ms];}
 
     // *************************************************************************
-    // ***   Public: GetSpeedUnits function   **********************************
+    // ***   Public: GetFeedUnits function   ***********************************
     // *************************************************************************
-    inline static const char* GetSpeedUnits(uint8_t ms) {return speed_units[ms];}
+    inline static const char* GetFeedUnits(uint8_t ms) {return feed_units[ms];}
 
     // *************************************************************************
     // ***   Public: GetReportUnits function   *********************************
@@ -504,14 +504,14 @@ class GrblComm : public AppTask
     inline const char* GetReportUnits(uint8_t axis) {return (IsRotaryAxis(axis) ? units[MEASUREMENT_SYSTEM_ROTARY] : GetReportUnits());}
 
     // *************************************************************************
-    // ***   Public: GetReportSpeedUnits function   ****************************
+    // ***   Public: GetReportFeedUnits function   *****************************
     // *************************************************************************
-    inline const char* GetReportSpeedUnits() {return GetSpeedUnits(measurement_system);}
+    inline const char* GetReportFeedUnits() {return GetFeedUnits(measurement_system);}
 
     // *************************************************************************
-    // ***   Public: GetReportSpeedUnits function   ****************************
+    // ***   Public: GetReportFeedUnits function   *****************************
     // *************************************************************************
-    inline const char* GetReportSpeedUnits(uint8_t axis) {return (IsRotaryAxis(axis) ? speed_units[MEASUREMENT_SYSTEM_ROTARY] : GetReportSpeedUnits());}
+    inline const char* GetReportFeedUnits(uint8_t axis) {return (IsRotaryAxis(axis) ? feed_units[MEASUREMENT_SYSTEM_ROTARY] : GetReportFeedUnits());}
 
     // *************************************************************************
     // ***   Public: ValueToStringWithScaler function   ************************
@@ -569,9 +569,17 @@ class GrblComm : public AppTask
     int32_t GetProbePosition(uint8_t axis);
 
     // *************************************************************************
+    // ***   Public: GetAxisMaxFeedX100   **************************************
+    // *************************************************************************
+    // * Returns axis maximum feed($110 + axis) in current report units per
+    // * minute multiplied by 100 to match feed_x100 format used by jog
+    // * functions. Returns 0 if setting isn't received from controller yet.
+    uint32_t GetAxisMaxFeedX100(uint8_t axis);
+
+    // *************************************************************************
     // ***   Public: GetToolLengthOffset function   ****************************
     // *************************************************************************
-    int32_t GetToolLengthOffset() {return (int32_t)(grbl_tool_length_offset[AXIS_Z] * GetReportUnitsScaler());}
+    inline int32_t GetToolLengthOffset() {return (int32_t)(grbl_tool_length_offset[AXIS_Z] * GetReportUnitsScaler());}
 
     // *************************************************************************
     // ***   Public: GetFeedOverride function   ********************************
@@ -881,7 +889,7 @@ class GrblComm : public AppTask
     static const int32_t scaler[MEASUREMENT_SYSTEM_CNT];
     static const uint8_t precision[MEASUREMENT_SYSTEM_CNT];
     static const char* const units[MEASUREMENT_SYSTEM_CNT];
-    static const char* const speed_units[MEASUREMENT_SYSTEM_CNT];
+    static const char* const feed_units[MEASUREMENT_SYSTEM_CNT];
 
     // Pointer to UART class
     StHalUart* uart = nullptr;
@@ -936,9 +944,9 @@ class GrblComm : public AppTask
       {
         uint32_t mpg : 1, state : 1, pos : 1, offset : 1, await_ack : 1,
                  await_wco_ok : 1, leds : 1, dist : 1, message : 1, feed : 1,
-                 rpm : 1, alarm : 1, error : 1, xmode : 1, pins : 1, reset : 1,
-                 feed_override : 1, rapid_override : 1, rpm_override : 1, probe: 1,
-                 tlo: 1, unassigned : 11;
+                 rpm : 1, rpm_actual : 1, alarm : 1, error : 1, xmode : 1,
+                 pins : 1, reset : 1, feed_override : 1, rapid_override : 1,
+                 rpm_override : 1, probe: 1, tlo: 1, unassigned : 10;
       };
     } changes_t;
 
@@ -992,6 +1000,8 @@ class GrblComm : public AppTask
     uint16_t homing = 0u;
     uint16_t spindle_speed_max = 0u;
     uint16_t spindle_speed_min = 0u;
+    // Maximum feed per axis($110..$115), always metric(mm/min or deg/min)
+    float axis_max_feed[AXIS_CNT] = {0};
 
     // Task queue message struct
     struct TaskQueueMsg
