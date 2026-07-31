@@ -90,9 +90,9 @@ class LittleC
       TOO_MANY_FUNCS, TOO_MANY_GVARS, TOO_DEEP_NESTING, END_ERR
     };
 
-    const char* prog;        // current location in source code
+    const char* prog;            // current location in source code
     const char* p_buf = nullptr; // points to start of program buffer
-    int p_buf_size = 0;      // size of program buffer, needed to validate calculated indexes
+    int p_buf_size = 0;          // size of program buffer, needed to validate calculated indexes
 
     // Output buffer and size
     char* p_output = nullptr;

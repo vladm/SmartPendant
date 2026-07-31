@@ -32,6 +32,12 @@
 class TextBox : public VisList
 {
   public:
+    // Maximum length of a line content in characters, without line ending
+    // (classic grbl line buffer limit). Public since users of the text box
+    // check lines against the same limit(ProgramSender pre-check and
+    // streaming backstop) - all checks must use the same number.
+    static const uint32_t MAX_LINE_LEN = 80u;
+
     // *************************************************************************
     // ***   Constructor   *****************************************************
     // *************************************************************************
@@ -105,7 +111,7 @@ class TextBox : public VisList
 
     // Strings to show text
     String str[16];
-    char str_text[16][80 + 2 + 1] = {0}; // One 80 characters line + CR + LF + \0
+    char str_text[16][MAX_LINE_LEN + 2u + 1u] = {0}; // One line + CR + LF + \0
     // Visible lines count
     int32_t visible_cnt = 0;
 

@@ -287,8 +287,8 @@ Result ProgramSender::TimerExpired(uint32_t interval)
                 {
                   // Null-terminate just in case
                   str[NumberOf(str) - 1] = '\0';
-                  // If we read line longer than 80 characters + possible CR & LF characters
-                  if(strlen(str) > 80 + 2)
+                  // If we read line longer than the limit + possible CR & LF characters
+                  if(strlen(str) > TextBox::MAX_LINE_LEN + 2u)
                   {
                     // Stop streaming - silently skipping the rest of the
                     // program is dangerous on a CNC, operator must know.
@@ -676,7 +676,7 @@ Result ProgramSender::ProcessMenuOkCallback(ProgramSender* obj_ptr, void* ptr)
             {
               // Count content character and check the limit
               line_len++;
-              if(line_len > 80u)
+              if(line_len > TextBox::MAX_LINE_LEN)
               {
                 long_line_n = line_n;
                 break;
@@ -745,10 +745,10 @@ Result ProgramSender::ProcessMenuOkCallback(ProgramSender* obj_ptr, void* ptr)
             }
             // Null-terminate just in case
             str[NumberOf(str) - 1] = '\0';
-            // If we read line longer than 80 characters + possible CR & LF
+            // If we read line longer than the limit + possible CR & LF
             // characters. Should never happen after the check above - kept
             // as a backstop.
-            if(strlen(str) > 80 + 2)
+            if(strlen(str) > TextBox::MAX_LINE_LEN + 2u)
             {
               // Close file - we can't continue
               f_close(&SDFile);
