@@ -1036,6 +1036,13 @@ Result GrblComm::ProbeAxisTowardWorkpiece(uint8_t axis, int32_t position, uint32
         snprintf((char*)msg.cmd, NumberOf(msg.cmd), "G90%sG38.3%s%sF%s\r", GetMeasurementSystemGcode(), axis_str[axis], position_str, feed_str);
       }
 
+      // Clear probe report flags before sending: the [PRB:...] report for
+      // this command sets them again, which lets the sequence verify the
+      // report actually arrived - a lost or garbled report otherwise leaves
+      // stale data from the previous probe in the position getters.
+      grbl_probe_data_received = false;
+      grbl_probe_success = false;
+
       // Send message
       result = SendTaskMessage(&msg);
       // Save ID
@@ -1077,6 +1084,10 @@ Result GrblComm::ProbeAxisAwayFromWorkpiece(uint8_t axis, int32_t position, uint
       ValueToString(feed_str, NumberOf(feed_str), feed_x100, 100);
       // Create Set Axis command
       snprintf((char*)msg.cmd, NumberOf(msg.cmd), "G90%sG38.4%s%sF%s\r", GetMeasurementSystemGcode(), axis_str[axis], position_str, feed_str);
+
+      // Clear probe report flags before sending - see ProbeAxisTowardWorkpiece()
+      grbl_probe_data_received = false;
+      grbl_probe_success = false;
 
       // Send message
       result = SendTaskMessage(&msg);
@@ -1447,12 +1458,19 @@ void GrblComm::ParseSettings(char* data)
 
       // ***********************************************************************
       case 13:
-        if(measurement_system != atoi(s))
+      {
+        // $13 is a boolean(report in inches). Value is used as an index into
+        // the scaler/precision/units arrays, so it must be validated: a
+        // corrupted line("$13=7" from UART noise) would cause out of bounds
+        // reads and garbage position/jog scaling.
+        uint8_t ms = (atoi(s) != 0) ? MEASUREMENT_SYSTEM_IMPERIAL : MEASUREMENT_SYSTEM_METRIC;
+        if(measurement_system != ms)
         {
-          measurement_system = atoi(s);
+          measurement_system = ms;
           settings_changed = true;
         }
         break;
+      }
 
       // ***********************************************************************
       case 22:
@@ -1496,12 +1514,18 @@ void GrblComm::ParseSettings(char* data)
 
       // ***********************************************************************
       case 32:
-        if(mode_of_operation != atoi(s))
+      {
+        // $32 is the mode of operation(0 mill, 1 laser, 2 lathe). It selects
+        // the screen set and script filtering, so ignore anything else - a
+        // corrupted line must not flip the pendant into an unknown mode.
+        int32_t mode = atoi(s);
+        if((mode >= 0) && (mode < MODE_OF_OPERATION_CNT) && (mode_of_operation != mode))
         {
-          mode_of_operation = atoi(s);
+          mode_of_operation = mode;
           settings_changed = true;
         }
         break;
+      }
 
       // ***********************************************************************
       case 376:
@@ -1796,6 +1820,14 @@ void GrblComm::ParseData(void)
     {
       // Probe position
       grbl_changed.probe = ParseAxisData(line + 1 + 4, grbl_probe_position);
+      // Success flag from the ":n" suffix after the coordinates. A missing
+      // suffix(malformed report) is treated as failure - probing sequences
+      // must not zero work offsets from a report that can't be trusted.
+      char* s = strchr(line + 1 + 4, ':');
+      grbl_probe_success = ((s != nullptr) && (s[1] == '1'));
+      // Report received: set unconditionally, unlike grbl_changed.probe
+      // which is only set when the position differs from the previous probe
+      grbl_probe_data_received = true;
     }
     else if(!strncmp(&line[1], "TLO:", 4))
     {
@@ -1808,9 +1840,11 @@ void GrblComm::ParseData(void)
       line += 4 + 1;
       // Parse number of axis
       ParseInt(number_of_axis, line);
-      // Clamp to valid range: malformed input can produce negative value and
-      // controller can report more axis than supported by the pendant.
-      if(number_of_axis < 0) number_of_axis = 0;
+      // Clamp to valid range: malformed input can produce zero or negative
+      // value and controller can report more axis than supported by the
+      // pendant. Lower limit is 1, not 0: screens address the last axis
+      // window as dw[number_of_axis - 1u], which underflows with zero axes.
+      if(number_of_axis < 1) number_of_axis = 1;
       if(number_of_axis > AXIS_CNT) number_of_axis = AXIS_CNT;
 
       // Find line where axis names are

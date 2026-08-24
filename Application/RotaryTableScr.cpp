@@ -543,6 +543,38 @@ Result RotaryTableScr::ProcessButtonCallback(RotaryTableScr* obj_ptr, void* ptr)
         // Set ok result
         result = Result::RESULT_OK;
       }
+      else // In any other state(motion, alarm, etc.)
+      {
+        // InputDrv delivers a button event only to the first matching
+        // handler, so while this screen is shown the Application handler
+        // (which maps the Right button to Stop on every other screen) is
+        // never called. Without handling there this screen has no way to
+        // stop commanded motion at all. Mirror the Application mapping.
+        if(btn.state == true)
+        {
+          if(ths.grbl_comm.GetState() == GrblComm::ALARM)
+          {
+            if(ths.grbl_comm.GetStatusCode() == GrblComm::Status_NotAllowedCriticalEvent)
+            {
+              ths.grbl_comm.Reset(); // Send Reset command
+            }
+            else
+            {
+              ths.grbl_comm.Unlock(); // Send Unlock command
+            }
+          }
+          else if(ths.grbl_comm.GetState() == GrblComm::HOME)
+          {
+            ths.grbl_comm.Reset(); // Send Reset command
+          }
+          else
+          {
+            ths.grbl_comm.Stop(); // Send Stop command
+          }
+        }
+        // Set ok result
+        result = Result::RESULT_OK;
+      }
     }
 
     // Update objects on a screen

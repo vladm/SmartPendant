@@ -564,6 +564,20 @@ class GrblComm : public AppTask
     inline bool IsProbeTriggered() {return grbl_probe_triggered;}
 
     // *************************************************************************
+    // ***   Public: IsProbeDataReceived function   ****************************
+    // *************************************************************************
+    // * Returns true if a [PRB:...] report was parsed since the last probe
+    // * command was sent. Probe position getters return stale data otherwise.
+    inline bool IsProbeDataReceived() {return grbl_probe_data_received;}
+
+    // *************************************************************************
+    // ***   Public: IsProbeSucceed function   *********************************
+    // *************************************************************************
+    // * Returns true if the last [PRB:...:n] report has the success suffix set,
+    // * i.e. the probe actually contacted the workpiece during the command.
+    inline bool IsProbeSucceed() {return grbl_probe_success;}
+
+    // *************************************************************************
     // ***   Public: GetProbePosition function   *******************************
     // *************************************************************************
     int32_t GetProbePosition(uint8_t axis);
@@ -966,6 +980,14 @@ class GrblComm : public AppTask
     bool      grbl_mpgMode = false;
     bool      grbl_xModeDiameter;
     bool      grbl_probe_triggered = false;
+    // Set when a [PRB:...] report is parsed(unconditionally, unlike the
+    // grbl_changed.probe flag which only reflects value changes). Cleared by
+    // ProbeAxisTowardWorkpiece()/ProbeAxisAwayFromWorkpiece(), so a probing
+    // sequence can verify the report for its command actually arrived
+    // instead of silently using stale data from a previous probe.
+    bool      grbl_probe_data_received = false;
+    // Success flag from the ":n" suffix of the [PRB:...:n] report
+    bool      grbl_probe_success = false;
     changes_t grbl_changed;
     changes_t grbl_received;
     uint8_t   grbl_alarm;

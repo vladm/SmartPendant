@@ -55,6 +55,10 @@ void Header::SetParams(int32_t x, int32_t y, int32_t w, int32_t h, uint32_t n)
 
   // Set box params
   box.SetParams(x_start, y_end + 1, width, display_drv.GetScreenH() - height, COLOR_DARKGREY, true);
+  // Box have to be active to cover active elements below it, otherwise
+  // touches in the side strips and gaps between page buttons fall through
+  // to the live screen controls under the opened page list.
+  box.SetActive(true);
 
   // Shadow box for header
   shadowbox.SetParams(x, y, w, h);

@@ -13,8 +13,10 @@ git clone --recurse-submodules https://github.com/nickshl/SmartPendant.git
 ```
 
 ### Building using the IDE
-    
-You can import the project into [STM32CubeIDE](https://www.st.com/en/development-tools/stm32cubeide.html).
+
+Generate Code with [STM32CubMX](https://www.st.com/en/development-tools/stm32cubemx.html).
+
+Then import the project into [STM32CubeIDE](https://www.st.com/en/development-tools/stm32cubeide.html). Set Build configuration (Release/Debug) and build.
 
 You can then download the firmware with [STM32CubeProg](https://www.st.com/en/development-tools/stm32cubeprog.html).
 

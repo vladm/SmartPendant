@@ -117,10 +117,16 @@ bool TextBox::SetText(const char* text)
       lines_cnt++;
       // Skip all characters until end of line or end of string
       while((*ptr != '\n') && (*ptr != '\r') && (*ptr != '\0')) ptr++;
-      // Skip all CR LF symbols TODO:: handle multiple(empty lines)!
+      // Check length of the line CONTENT only, before the CR/LF skip below:
+      // the skip consumes the line's own CR/LF plus all following empty
+      // lines, which inflated the measured length and rejected valid
+      // programs(a max length line followed by an empty line), while a final
+      // line without a newline was allowed 2 extra characters. The limit is
+      // the same one used by the SD pre-check, and the line buffer holds
+      // MAX_LINE_LEN + CR + LF, so content up to the limit fits.
+      if((uint32_t)(ptr - start_ptr) > MAX_LINE_LEN) lines_fit = false;
+      // Skip all CR LF symbols(line's own ending and the empty lines after it)
       while((*ptr == '\n') || (*ptr == '\r')) ptr++;
-      // Check length, if line will not fit completely into line buffer - clear flag
-      if((uint32_t)(ptr - start_ptr) > (NumberOf(str_text[0u]) - 1)) lines_fit = false;
     }
     // Set select color to blue if we have text
     box.SetColor(COLOR_BLUE);

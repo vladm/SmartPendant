@@ -113,6 +113,46 @@ Result GCodeGeneratorScr::TimerExpired(uint32_t interval)
 }
 
 // *****************************************************************************
+// ***   IsScriptFile function(file scope)   ***********************************
+// *****************************************************************************
+// * Returns true if directory entry is a script file for the current mode of
+// * operation(.ms* for mill, .ls* for lathe, not a directory). Used by the
+// * menu fill and the open handler: both must use the same filter, since the
+// * file is found by its index.
+static bool IsScriptFile(const FILINFO& fno)
+{
+  // Check extension - we want .ms or .ls
+  bool add_file = false;
+  // Index variable
+  uint32_t i = 0u;
+  // Find end of the filename
+  for(; i < NumberOf(fno.fname); i++) if(fno.fname[i] == '\0') break;
+  // Check extension(only if the name is long enough, otherwise i -= 3u underflows)
+  for(i -= ((i >= 3u) ? 3u : 0u); i > 0; i--)
+  {
+    // Check if extension is .ms* or .ls*
+    if((fno.fname[i] == '.') && (tolower(fno.fname[i+2]) == 's'))
+    {
+      // Allow only .ms* files for mill and .ls* files for lathe
+      if(((GrblComm::GetInstance().GetModeOfOperation() == GrblComm::MODE_OF_OPERATION_MILL)  && (tolower(fno.fname[i+1]) == 'm')) ||
+         ((GrblComm::GetInstance().GetModeOfOperation() == GrblComm::MODE_OF_OPERATION_LATHE) && (tolower(fno.fname[i+1]) == 'l')))
+      {
+        add_file = true;
+        break;
+      }
+//      // For test only: allow both types of files at once
+//      if((tolower(fno.fname[i+1]) == 'm') || (tolower(fno.fname[i+1]) == 'l'))
+//      {
+//        add_file = true;
+//        break;
+//      }
+    }
+  }
+  // It should be a file with the proper extension, not a directory
+  return (add_file && !(fno.fattrib & AM_DIR));
+}
+
+// *****************************************************************************
 // ***   Private: ProcessMenuOkCallback function   *****************************
 // *****************************************************************************
 Result GCodeGeneratorScr::ProcessMenuOkCallback(GCodeGeneratorScr* obj_ptr, void* ptr)
@@ -174,10 +214,15 @@ Result GCodeGeneratorScr::ProcessMenuOkCallback(GCodeGeneratorScr* obj_ptr, void
                 }
                 // Switch to the Program Sender screen if successful
                 Application::GetInstance().ChangeScreen(ProgramSender::GetInstance());
+                // The generated program is handed off to the program sender -
+                // this screen must not release it anymore
+                ths.output_buf_owned = false;
               }
               else
               {
-                // If unsuccessful - display message box with an error
+                // If unsuccessful - display message box with an error. The
+                // buffer stays owned by this screen(error text is in it) and
+                // is released when the message box is dismissed.
                 ths.msg_box.Setup("Error", txt);
                 // Show message box with request
                 ths.msg_box.Show(10000u);
@@ -253,32 +298,63 @@ Result GCodeGeneratorScr::ProcessMenuOkCallback(GCodeGeneratorScr* obj_ptr, void
     }
     else // otherwise we in a file open mode
     {
-      // Buffer for the file name, filled with 0
-      char fn[32u] = {0};
-      // Copy directory name
-      strncpy(fn, "Scripts/", NumberOf(fn));
-      // Get pointer to the string after directory name
-      char* pfn = &fn[strlen(fn)];
-      // Get number of remaining available characters
-      uint32_t cnt = NumberOf(fn) - strlen(fn);
-      // Copy filename
-      for(uint32_t i = 0u; i < cnt; i++)
+      // Find the script by rescanning the directory instead of parsing the
+      // name back out of the padded menu text: the menu shows only 19
+      // characters of the name, so a longer name either fails to open or -
+      // worse - another script matching the truncated prefix could be opened.
+      FILINFO fno;
+      DIR dir;
+      // Found flag
+      bool found = false;
+
+      // Open the scripts directory
+      if(f_opendir(&dir, "Scripts") == FR_OK)
       {
-        pfn[i] = ths.menu_items[idx].text[i];
-        if(pfn[i] == '\0') break;
-      }
-      // Null-terminate it
-      fn[NumberOf(fn) - 1] = '\0';
-      // Go from the end of array and replace all spaces to null-terminator until
-      // we found first non-space character
-      for(uint32_t i = NumberOf(fn) - 1u; i > 0u; i--)
-      {
-        if(fn[i] <= ' ') fn[i] = '\0';
-        else break;
+        // Index of the current script file
+        uint32_t file_idx = 0u;
+        for(;;)
+        {
+          // Read a directory item, stop on error or end of dir
+          if((f_readdir(&dir, &fno) != FR_OK) || (fno.fname[0] == 0)) break;
+          // Count only script files - the same filter the menu fill uses,
+          // so indexes match the menu positions
+          if(IsScriptFile(fno))
+          {
+            // Check if it is the selected one
+            if(file_idx == idx)
+            {
+              found = true;
+              break;
+            }
+            file_idx++;
+          }
+        }
+        f_closedir(&dir);
       }
 
+      // Verify the found file against the displayed menu string: directory
+      // content could change since the list was shown(card swap) and the
+      // "-- Too many files! --" marker doesn't correspond to a file at all.
+      if(found && (idx < NumberOf(ths.menu_items)))
+      {
+        // Buffer for the check string - same size as the menu item text
+        char check_str[32u + 1u];
+        snprintf(check_str, NumberOf(check_str), "%-19.19s%12lub", fno.fname, fno.fsize);
+        // Clear flag if it doesn't match the menu item
+        if(strcmp(check_str, ths.menu_items[idx].text) != 0) found = false;
+      }
+      else
+      {
+        found = false;
+      }
+
+      // Buffer for the file name with the directory prefix
+      char fn[8u + NumberOf(fno.fname)] = {0};
+      // Create full file name
+      if(found) snprintf(fn, NumberOf(fn), "Scripts/%s", fno.fname);
+
       // Open file
-      FRESULT fres = f_open(&SDFile, fn, FA_OPEN_EXISTING | FA_READ);
+      FRESULT fres = found ? f_open(&SDFile, fn, FA_OPEN_EXISTING | FA_READ) : FR_NO_FILE;
       // Write data to file
       if(fres == FR_OK)
       {
@@ -311,14 +387,15 @@ Result GCodeGeneratorScr::ProcessMenuOkCallback(GCodeGeneratorScr* obj_ptr, void
             if(ths.interpreter.Prescan()) // If prescan successful
             {
               uint32_t i = 0u;
-              // Copy string. Last array element reserved for null-terminator
+              // Copy string from the real file name(menu text is padded and
+              // truncated). Last array element reserved for null-terminator
               // written after the cycle, so i can't exceed NumberOf() - 1u.
               for(i = 0u; i < NumberOf(script_caption_str) - 1u; i++)
               {
                 // Copy character
-                ths.script_caption_str[i] = ths.menu_items[idx].text[i];
+                ths.script_caption_str[i] = fno.fname[i];
                 // If end of string reached or '.' character found
-                if((ths.menu_items[idx].text[i] == '\0') || (ths.menu_items[idx].text[i] == '.'))
+                if((fno.fname[i] == '\0') || (fno.fname[i] == '.'))
                 {
                   break; // break the cycle
                 }
@@ -466,35 +543,10 @@ Result GCodeGeneratorScr::ProcessCallback(const void* ptr)
           res = f_readdir(&dir, &fno);
           // Break on error or end of dir
           if(res != FR_OK || fno.fname[0] == 0) break;
-          // Check extension - we want .ms or .ls
-          bool add_file = false;
-          // Index variable
-          uint32_t i = 0u;
-          // Find end of the filename
-          for(; i < NumberOf(fno.fname); i++) if(fno.fname[i] == '\0') break;
-          // Check extension(only if the name is long enough, otherwise i -= 3u underflows)
-          for(i -= ((i >= 3u) ? 3u : 0u); i > 0; i--)
-          {
-            // Check if extension is .ms* or .ls*
-            if((fno.fname[i] == '.') && (tolower(fno.fname[i+2]) == 's'))
-            {
-              // Allow only .ms* files for mill and .ls* files for lathe
-              if(((GrblComm::GetInstance().GetModeOfOperation() == GrblComm::MODE_OF_OPERATION_MILL)  && (tolower(fno.fname[i+1]) == 'm')) ||
-                 ((GrblComm::GetInstance().GetModeOfOperation() == GrblComm::MODE_OF_OPERATION_LATHE) && (tolower(fno.fname[i+1]) == 'l')))
-              {
-                add_file = true;
-                break;
-              }
-//              // For test only: allow both types of files at once
-//              if((tolower(fno.fname[i+1]) == 'm') || (tolower(fno.fname[i+1]) == 'l'))
-//              {
-//                add_file = true;
-//                break;
-//              }
-            }
-          }
-          // It isn't a directory
-          if(!(fno.fattrib & AM_DIR) && add_file)
+          // Add only script files for the current mode of operation. The
+          // same filter is used by the open handler which finds the file by
+          // its index in the directory.
+          if(IsScriptFile(fno))
           {
             menu_items[idx].str.SetString(menu_items[idx].text, menu_items[idx].n, "%-19.19s%12lub", fno.fname, fno.fsize);
             idx++;
@@ -609,6 +661,15 @@ void GCodeGeneratorScr::UpdateMenuStrings(void)
     // Set number of items in menu
     menu.SetCount(n + 1);
   }
+  else
+  {
+    // Too many parameters to fit into the menu: show the ones that fit.
+    // Generate is intentionally not added - the script can't be configured
+    // fully, generating with invisible parameters would be misleading.
+    // Without SetCount() the menu would keep the item count from the file
+    // list, showing stale file entries after the parameters.
+    menu.SetCount(i);
+  }
 }
 
 // *****************************************************************************
@@ -662,10 +723,13 @@ char* GCodeGeneratorScr::AllocateOutputBuffer(uint32_t& size)
 {
   // Release previous allocated pointer(if any)
   ReleaseOutputPointer();
-  // Allocate buffer by ProgramSender
+  // Allocate buffer by ProgramSender(it releases its previous buffer itself)
   char *txt = ProgramSender::GetInstance().AllocateDataBuffer(size);
   // Set output buffer and if successful
   interpreter.SetOutputBuf(txt, size);
+  // The buffer belongs to this screen until it is released or handed off to
+  // the program sender after a successful generation
+  output_buf_owned = (txt != nullptr);
   // Return pointer to buffer - may be used to check if allocation is successful
   return txt;
 }
@@ -678,8 +742,18 @@ void GCodeGeneratorScr::ReleaseOutputPointer()
   // Interpreter may still hold the buffer as the output(error text was
   // written into it) - clear the pointer before the buffer is released
   interpreter.SetOutputBuf(nullptr, 0);
-  // Release buffer in program sender after message box with an error cleared
-  ProgramSender::GetInstance().ReleaseDataPointer();
+  // Release the program sender buffer only if this screen actually holds it:
+  // error message boxes are dismissed through this path too, and some of
+  // them are shown on paths that never allocated the buffer("can't open the
+  // file", "IDLE state only") - releasing unconditionally would delete a
+  // program loaded or generated earlier and still owned by the sender.
+  if(output_buf_owned)
+  {
+    // Release buffer in program sender
+    ProgramSender::GetInstance().ReleaseDataPointer();
+    // We don't hold the buffer anymore
+    output_buf_owned = false;
+  }
 }
 
 // *****************************************************************************

@@ -5,6 +5,16 @@
 #define NUM_FUNC    100
 #define NUM_VARS    200
 
+// Maximum interpreter nesting depth(nested blocks, function calls and
+// parenthesized expressions). Each level of script nesting recurses on the
+// native task stack, so the depth must be limited to prevent stack overflow.
+// Sizing(worst path per level is the eval_exp00..eval_exp5 chain): ~368 bytes
+// at -O0, ~280 bytes at -Og, so 10 levels take at most ~3.7kB of the 6kB
+// Application task stack, leaving room for the frames above the interpreter
+// and below the expression chain(atom/get_token/println/snprintf). Real
+// scripts peak at about 6 levels.
+#define NEST_DEPTH_MAX 10
+
 class LittleC
 {
   public:
@@ -77,11 +87,12 @@ class LittleC
       SYNTAX, UNBAL_PARENS, NO_EXP, NOT_VAR, NOT_STRING, PARAM_ERR, SEMI_EXPECTED, UNBAL_BRACES, FUNC_UNDEF, TYPE_EXPECTED,
       NEST_FUNC, RET_NOCALL, PAREN_EXPECTED, WHILE_EXPECTED, QUOTE_EXPECTED, TOO_MANY_LVARS, DIV_BY_ZERO,
       DUP_VAR, DUP_FUNC, TOO_LONG_TOKEN, BRACE_EXPECTED, COLON_EXPECTED, UNDEFINED_TOKEN,
-      TOO_MANY_FUNCS, TOO_MANY_GVARS, END_ERR
+      TOO_MANY_FUNCS, TOO_MANY_GVARS, TOO_DEEP_NESTING, END_ERR
     };
 
-    const char* prog;  // current location in source code
-    const char* p_buf; // points to start of program buffer
+    const char* prog;            // current location in source code
+    const char* p_buf = nullptr; // points to start of program buffer
+    int p_buf_size = 0;          // size of program buffer, needed to validate calculated indexes
 
     // Output buffer and size
     char* p_output = nullptr;
@@ -98,6 +109,7 @@ class LittleC
     int func_index = 0; // index into function table
     int gvar_index = 0; // index into global variable table
     int lvartos = 0;    // index into local variable stack
+    int nest_depth = 0; // current nesting depth(blocks, calls, parentheses) to guard the native stack
 
     // Data type structure
     struct data_type
@@ -168,7 +180,7 @@ class LittleC
     };
 
     // Error messages
-    const err_msg errors[26] =
+    const err_msg errors[27] =
     {
       {SYNTAX,          "Syntax error"},
       {NO_EXP,          "No expression present"},
@@ -195,6 +207,7 @@ class LittleC
       {UNDEFINED_TOKEN, "Undefined token"},
       {TOO_MANY_FUNCS,  "Too many functions"},
       {TOO_MANY_GVARS,  "Too many global variables"},
+      {TOO_DEEP_NESTING,"Nesting is too deep"},
       {END_ERR,         "Error Not Found"}
     };
 

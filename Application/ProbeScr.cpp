@@ -860,12 +860,23 @@ Result CenterFinderTab::ProbeInsideLineSequence(probe_line_state_t& state, uint8
   }
   else if(state == PROBE_LINE_FAST)
   {
-    // Get probe axis position
-    measured_pos = grbl_comm.GetProbePosition(axis);
-    // Move away from workpiece at search feed
-    result = grbl_comm.ProbeAxisAwayFromWorkpiece(axis, safe_pos, grbl_comm.ConvertMetricFeedToUnitsX100(NVM::GetInstance().GetValue(NVM::PROBE_SEARCH_FEED)), cmd_id);
-    // Set next state
-    state = PROBE_LINE_FAST_RETURN;
+    // Check the report for our probe command was received and the probe
+    // contacted the workpiece: a lost or garbled [PRB:...] report on the
+    // noisy UART otherwise leaves the PREVIOUS probe position in the getter
+    // and the sequence would silently continue against a wrong coordinate.
+    if(!grbl_comm.IsProbeDataReceived() || !grbl_comm.IsProbeSucceed())
+    {
+      result = Result::ERR_CANNOT_EXECUTE;
+    }
+    else
+    {
+      // Get probe axis position
+      measured_pos = grbl_comm.GetProbePosition(axis);
+      // Move away from workpiece at search feed
+      result = grbl_comm.ProbeAxisAwayFromWorkpiece(axis, safe_pos, grbl_comm.ConvertMetricFeedToUnitsX100(NVM::GetInstance().GetValue(NVM::PROBE_SEARCH_FEED)), cmd_id);
+      // Set next state
+      state = PROBE_LINE_FAST_RETURN;
+    }
   }
   else if(state == PROBE_LINE_FAST_RETURN)
   {
@@ -876,10 +887,18 @@ Result CenterFinderTab::ProbeInsideLineSequence(probe_line_state_t& state, uint8
   }
   else if(state == PROBE_LINE_SLOW)
   {
-    // Get probe axis position
-    measured_pos = grbl_comm.GetProbePosition(axis);
-    // Set result ready state
-    state = PROBE_LINE_RESULT_READY;
+    // Check the report for our probe command - see PROBE_LINE_FAST above
+    if(!grbl_comm.IsProbeDataReceived() || !grbl_comm.IsProbeSucceed())
+    {
+      result = Result::ERR_CANNOT_EXECUTE;
+    }
+    else
+    {
+      // Get probe axis position
+      measured_pos = grbl_comm.GetProbePosition(axis);
+      // Set result ready state
+      state = PROBE_LINE_RESULT_READY;
+    }
   }
   else if(state == PROBE_LINE_RESULT_READY)
   {
@@ -969,12 +988,23 @@ Result CenterFinderTab::ProbeOutsideLineSequence(probe_line_state_t& state, uint
   // ***************************************************************************
   else if(state == PROBE_LINE_FAST)
   {
-    // Get probe axis position
-    measured_pos = grbl_comm.GetProbePosition(axis);
-    // Move away from workpiece at search feed
-    result = grbl_comm.ProbeAxisAwayFromWorkpiece(axis, safe_pos + len * dir, grbl_comm.ConvertMetricFeedToUnitsX100(NVM::GetInstance().GetValue(NVM::PROBE_SEARCH_FEED)), cmd_id);
-    // Set next state
-    state = PROBE_LINE_FAST_RETURN;
+    // Check the report for our probe command was received and the probe
+    // contacted the workpiece: a lost or garbled [PRB:...] report on the
+    // noisy UART otherwise leaves the PREVIOUS probe position in the getter
+    // and the sequence would silently continue against a wrong coordinate.
+    if(!grbl_comm.IsProbeDataReceived() || !grbl_comm.IsProbeSucceed())
+    {
+      result = Result::ERR_CANNOT_EXECUTE;
+    }
+    else
+    {
+      // Get probe axis position
+      measured_pos = grbl_comm.GetProbePosition(axis);
+      // Move away from workpiece at search feed
+      result = grbl_comm.ProbeAxisAwayFromWorkpiece(axis, safe_pos + len * dir, grbl_comm.ConvertMetricFeedToUnitsX100(NVM::GetInstance().GetValue(NVM::PROBE_SEARCH_FEED)), cmd_id);
+      // Set next state
+      state = PROBE_LINE_FAST_RETURN;
+    }
   }
   // ***************************************************************************
   // *** Start slow measurement toward workpiece *******************************
@@ -991,10 +1021,18 @@ Result CenterFinderTab::ProbeOutsideLineSequence(probe_line_state_t& state, uint
   // ***************************************************************************
   else if(state == PROBE_LINE_SLOW)
   {
-    // Get probe axis position
-    measured_pos = grbl_comm.GetProbePosition(axis);
-    // Set result ready state
-    state = PROBE_LINE_RESULT_READY;
+    // Check the report for our probe command - see PROBE_LINE_FAST above
+    if(!grbl_comm.IsProbeDataReceived() || !grbl_comm.IsProbeSucceed())
+    {
+      result = Result::ERR_CANNOT_EXECUTE;
+    }
+    else
+    {
+      // Get probe axis position
+      measured_pos = grbl_comm.GetProbePosition(axis);
+      // Set result ready state
+      state = PROBE_LINE_RESULT_READY;
+    }
   }
   // ***************************************************************************
   // *** Return after slow measurement toward workpiece ************************
@@ -1267,12 +1305,24 @@ Result EdgeFinderTab::TimerExpired(uint32_t interval)
       }
       else if(state == PROBE_FAST)
       {
-        // Get probe axis position
-        measured_pos = grbl_comm.GetProbePosition(axis);
-        // Move away from workpiece at search feed
-        result = grbl_comm.ProbeAxisAwayFromWorkpiece(axis, safe_pos, grbl_comm.ConvertMetricFeedToUnitsX100(NVM::GetInstance().GetValue(NVM::PROBE_SEARCH_FEED)), cmd_id);
-        // Set next state
-        state = PROBE_FAST_RETURN;
+        // Check the report for our probe command was received and the probe
+        // contacted the workpiece: a lost or garbled [PRB:...] report on the
+        // noisy UART otherwise leaves the PREVIOUS probe position in the
+        // getter and the sequence would silently continue against a wrong
+        // coordinate.
+        if(!grbl_comm.IsProbeDataReceived() || !grbl_comm.IsProbeSucceed())
+        {
+          result = Result::ERR_CANNOT_EXECUTE;
+        }
+        else
+        {
+          // Get probe axis position
+          measured_pos = grbl_comm.GetProbePosition(axis);
+          // Move away from workpiece at search feed
+          result = grbl_comm.ProbeAxisAwayFromWorkpiece(axis, safe_pos, grbl_comm.ConvertMetricFeedToUnitsX100(NVM::GetInstance().GetValue(NVM::PROBE_SEARCH_FEED)), cmd_id);
+          // Set next state
+          state = PROBE_FAST_RETURN;
+        }
       }
       else if(state == PROBE_FAST_RETURN)
       {
@@ -1283,21 +1333,29 @@ Result EdgeFinderTab::TimerExpired(uint32_t interval)
       }
       else if(state == PROBE_SLOW)
       {
-        // Get probe axis position
-        measured_pos = grbl_comm.GetProbePosition(axis);
-        // Save position for first iteration
-        if(iteration == PROBE_ITERATION_SECOND)
+        // Check the report for our probe command - see PROBE_FAST above
+        if(!grbl_comm.IsProbeDataReceived() || !grbl_comm.IsProbeSucceed())
         {
-          measured_pos = (first_iteration_measured_pos + measured_pos) / 2;
+          result = Result::ERR_CANNOT_EXECUTE;
         }
         else
         {
-          first_iteration_measured_pos = measured_pos;
+          // Get probe axis position
+          measured_pos = grbl_comm.GetProbePosition(axis);
+          // Save position for first iteration
+          if(iteration == PROBE_ITERATION_SECOND)
+          {
+            measured_pos = (first_iteration_measured_pos + measured_pos) / 2;
+          }
+          else
+          {
+            first_iteration_measured_pos = measured_pos;
+          }
+          // Move away from workpiece at search feed
+          result = grbl_comm.ProbeAxisAwayFromWorkpiece(axis, safe_pos, grbl_comm.ConvertMetricFeedToUnitsX100(NVM::GetInstance().GetValue(NVM::PROBE_SEARCH_FEED)), cmd_id);
+          // Return after axis probing
+          state = PROBE_SLOW_RETURN;
         }
-        // Move away from workpiece at search feed
-        result = grbl_comm.ProbeAxisAwayFromWorkpiece(axis, safe_pos, grbl_comm.ConvertMetricFeedToUnitsX100(NVM::GetInstance().GetValue(NVM::PROBE_SEARCH_FEED)), cmd_id);
-        // Return after axis probing
-        state = PROBE_SLOW_RETURN;
       }
       // ***********************************************************************
       // *** Ascend to save Z position *****************************************
@@ -1575,6 +1633,11 @@ ToolOffsetTab& ToolOffsetTab::GetInstance()
 }
 
 // *****************************************************************************
+// ***   ToolOffsetTab constructor   *******************************************
+// *****************************************************************************
+ToolOffsetTab::ToolOffsetTab() : msg_box(Application::GetInstance().GetMsgBox()) {};
+
+// *****************************************************************************
 // ***   ToolOffsetTab Setup   *************************************************
 // *****************************************************************************
 Result ToolOffsetTab::Setup(int32_t y, int32_t height)
@@ -1609,6 +1672,9 @@ Result ToolOffsetTab::Setup(int32_t y, int32_t height)
   dw_base.SetUnits(grbl_comm.GetReportUnits(), DataWindow::RIGHT);
   dw_base.SetCallback(AppTask::GetCurrent());
   dw_base.SetActive(false);
+  // Base window is reset above: Setup() runs at boot and on controller
+  // settings change(metric/imperial flip), so the base must be measured again
+  base_valid = false;
   // Measure offset button
   get_base_btn.SetParams("MEASURE BASE", BORDER_W, dw_base.GetEndY() + BORDER_W*2, display_drv.GetScreenW() - BORDER_W*2, Font_8x12::GetInstance().GetCharH() * 5, true);
   get_base_btn.SetCallback(AppTask::GetCurrent());
@@ -1709,6 +1775,14 @@ Result ToolOffsetTab::TimerExpired(uint32_t interval)
   // Set actual tool offset
   dw_tool.SetNumber(grbl_comm.GetToolLengthOffset());
 
+  // Base position is measured in machine coordinates: controller reboot or
+  // re-homing can shift the machine coordinate space, so the stored base
+  // can't be trusted anymore and must be measured again.
+  if((grbl_comm.GetState() == GrblComm::UNKNOWN) || (grbl_comm.GetState() == GrblComm::HOME))
+  {
+    base_valid = false;
+  }
+
   // Error check - if state isn't IDLE, RUN or HOLD we should abort probing
   // sequence: probe alarm(missed tool setter, e-stop, limit) produces
   // neither "ok" nor "error" response, so the sequence would wait for the
@@ -1747,33 +1821,49 @@ Result ToolOffsetTab::TimerExpired(uint32_t interval)
     // If we send probing command and this command executed successfully
     else if((grbl_comm.GetCmdResult(cmd_id) == GrblComm::Status_OK) && (grbl_comm.IsStatusReceivedAfterCmd(cmd_id)) && (grbl_comm.GetState() == GrblComm::IDLE))
     {
-      // Get probe Z position
-      int32_t probe_pos = grbl_comm.GetProbeMachinePosition(GrblComm::AXIS_Z);
-      // If we tried base - update base data window
-      if(state == PROBE_BASE) dw_base.SetNumber(probe_pos);
-      else if(state == PROBE_TOOL) // If tried tool
+      // Check the report for our probe command was received and the probe
+      // contacted the tool setter: a lost or garbled [PRB:...] report
+      // otherwise leaves the PREVIOUS probe position in the getter and a
+      // wrong offset would be measured and applied silently.
+      if(!grbl_comm.IsProbeDataReceived() || !grbl_comm.IsProbeSucceed())
       {
-        // Calculate difference between base and tool
-        int32_t tool_diff = probe_pos - dw_base.GetNumber();
-        // Set tool offset
-        result = grbl_comm.SetToolLengthOffset(tool_diff);
-        // Request offsets to update it on the display
-        if(result.IsGood()) grbl_comm.RequestOffsets();
+        result = Result::ERR_CANNOT_EXECUTE;
       }
       else
       {
-        ; // Do nothing
-      }
-      if(result.IsGood())
-      {
-        // Move Z axis to the point before probing at feed 500 mm/min
-        grbl_comm.JogInMachineCoodinates(GrblComm::AXIS_Z, z_position, grbl_comm.ConvertMetricFeedToUnitsX100(500u));
-        // Clear cmd
-        cmd_id = 0u;
-        // Clear state
-        state = PROBE_CNT;
-        // Enable screen change
-        ProbeScr::GetInstance().EnableScreenChange();
+        // Get probe Z position
+        int32_t probe_pos = grbl_comm.GetProbeMachinePosition(GrblComm::AXIS_Z);
+        // If we tried base - update base data window
+        if(state == PROBE_BASE)
+        {
+          dw_base.SetNumber(probe_pos);
+          // Base is measured and can be used for tool offset measurements
+          base_valid = true;
+        }
+        else if(state == PROBE_TOOL) // If tried tool
+        {
+          // Calculate difference between base and tool
+          int32_t tool_diff = probe_pos - dw_base.GetNumber();
+          // Set tool offset
+          result = grbl_comm.SetToolLengthOffset(tool_diff);
+          // Request offsets to update it on the display
+          if(result.IsGood()) grbl_comm.RequestOffsets();
+        }
+        else
+        {
+          ; // Do nothing
+        }
+        if(result.IsGood())
+        {
+          // Move Z axis to the point before probing at feed 500 mm/min
+          grbl_comm.JogInMachineCoodinates(GrblComm::AXIS_Z, z_position, grbl_comm.ConvertMetricFeedToUnitsX100(500u));
+          // Clear cmd
+          cmd_id = 0u;
+          // Clear state
+          state = PROBE_CNT;
+          // Enable screen change
+          ProbeScr::GetInstance().EnableScreenChange();
+        }
       }
     }
     // Error check - if command was sent, but not accepted by controller TODO: do we need this?
@@ -1814,8 +1904,20 @@ Result ToolOffsetTab::ProcessCallback(const void* ptr)
   // We can start probing only in IDLE state and if probing isn't started yet
   if((grbl_comm.GetState() == GrblComm::IDLE) && (state == PROBE_CNT))
   {
+    // Refuse to measure the tool offset without a valid base position: the
+    // base window is 0 after boot and after a controller settings change,
+    // and it is stale after a controller reboot or re-homing. The offset is
+    // the difference to the base, so a wrong base silently applies a G43.1
+    // offset of the full machine Z coordinate of the tool setter.
+    if((ptr == &get_offset_btn) && (base_valid == false))
+    {
+      // Set Message Box parameters
+      msg_box.Setup("Error", "Measure BASE position\nfirst");
+      // Show message box
+      msg_box.Show(10000u);
+    }
     // Check buttons
-    if((ptr == &get_base_btn) || (ptr == &get_offset_btn) || (ptr == &clear_offset_btn))
+    else if((ptr == &get_base_btn) || (ptr == &get_offset_btn) || (ptr == &clear_offset_btn))
     {
       // Clear tool length offset
       result |= grbl_comm.ClearToolLengthOffset();
