@@ -383,6 +383,13 @@ Result CenterFinderTab::Show()
 // *****************************************************************************
 Result CenterFinderTab::Hide()
 {
+  // Stop the probing sequence. TimerExpired() isn't called for a hidden tab,
+  // so the sequence can't continue anyway, but the state would survive and
+  // resume mid-sequence - issuing probe and jog commands - when the user
+  // returns to the tab. Screens can be hidden while probing by the settings
+  // change handler, which bypasses DisableScreenChange().
+  ResetProbeSequence();
+
   // Delete encoder callback handler
   InputDrv::GetInstance().DeleteEncoderCallbackHandler(enc_cble);
 
@@ -1229,6 +1236,9 @@ Result EdgeFinderTab::Show()
 // *****************************************************************************
 Result EdgeFinderTab::Hide()
 {
+  // Stop the probing sequence - see CenterFinderTab::Hide()
+  ResetProbeSequence();
+
   // Delete encoder callback handler
   InputDrv::GetInstance().DeleteEncoderCallbackHandler(enc_cble);
 
@@ -1633,11 +1643,6 @@ ToolOffsetTab& ToolOffsetTab::GetInstance()
 }
 
 // *****************************************************************************
-// ***   ToolOffsetTab constructor   *******************************************
-// *****************************************************************************
-ToolOffsetTab::ToolOffsetTab() : msg_box(Application::GetInstance().GetMsgBox()) {};
-
-// *****************************************************************************
 // ***   ToolOffsetTab Setup   *************************************************
 // *****************************************************************************
 Result ToolOffsetTab::Setup(int32_t y, int32_t height)
@@ -1736,6 +1741,12 @@ Result ToolOffsetTab::Show()
 // *****************************************************************************
 Result ToolOffsetTab::Hide()
 {
+  // Stop the probing sequence - see CenterFinderTab::Hide(). This tab has no
+  // ResetProbeSequence(), the sequence is only two states plus the command.
+  state = PROBE_CNT;
+  cmd_id = 0u;
+  ProbeScr::GetInstance().EnableScreenChange();
+
   // Tool offset window and name
   name_tool.Hide();
   dw_tool.Hide();
@@ -1940,3 +1951,9 @@ Result ToolOffsetTab::ProcessCallback(const void* ptr)
   // Always good
   return Result::RESULT_OK;
 }
+
+// *****************************************************************************
+// ***   ToolOffsetTab constructor   *******************************************
+// *****************************************************************************
+ToolOffsetTab::ToolOffsetTab() : msg_box(Application::GetInstance().GetMsgBox()) {};
+

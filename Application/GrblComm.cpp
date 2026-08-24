@@ -1824,6 +1824,7 @@ void GrblComm::ParseData(void)
       // suffix(malformed report) is treated as failure - probing sequences
       // must not zero work offsets from a report that can't be trusted.
       char* s = strchr(line + 1 + 4, ':');
+      // Set success flag
       grbl_probe_success = ((s != nullptr) && (s[1] == '1'));
       // Report received: set unconditionally, unlike grbl_changed.probe
       // which is only set when the position differs from the previous probe

@@ -32,6 +32,61 @@ const LittleC::intern_func_type LittleC::intern_func[] =
   "", 0
 };
 
+// Keyword lookup table. Static, so it is shared by all instances and can be
+// placed in ROM instead of taking RAM in every object.
+const LittleC::commands LittleC::table[15] =
+{
+  // Commands must be entered lower case in this table.
+  {"void", VOID},
+  {"char", CHAR},
+  {"int", INT},
+  {"if", IF},
+  {"else", ELSE},
+  {"for", FOR},
+  {"do", DO},
+  {"while", WHILE},
+  {"switch", SWITCH},
+  {"case", CASE},
+  {"default", DEFAULT},
+  {"return", RETURN},
+  {"continue", CONTINUE},
+  {"break", BREAK},
+  {"", END}  // mark end of table
+};
+
+// Error messages. Static, so it is shared by all instances and can be placed
+// in ROM instead of taking RAM in every object.
+const LittleC::err_msg LittleC::errors[27] =
+{
+  {SYNTAX,          "Syntax error"},
+  {NO_EXP,          "No expression present"},
+  {PAREN_EXPECTED,  "Parentheses expected"},
+  {QUOTE_EXPECTED,  "Closing quote expected"},
+  {TOO_LONG_TOKEN,  "Token is too long"},
+  {UNBAL_BRACES,    "Unbalanced braces"},
+  {DUP_VAR,         "Duplicate variable name"},
+  {DUP_FUNC,        "Duplicate function name"},
+  {TYPE_EXPECTED,   "Type specifier expected"},
+  {SEMI_EXPECTED,   "Semicolon expected"},
+  {NEST_FUNC,       "Too many nested function calls"},
+  {RET_NOCALL,      "Return without call"},
+  {PARAM_ERR,       "Parameter error"},
+  {NOT_VAR,         "Not a variable"},
+  {NOT_STRING,      "Not a string"},
+  {BRACE_EXPECTED,  "{ expected (control statements must use blocks)"},
+  {COLON_EXPECTED,  "Colon expected"},
+  {WHILE_EXPECTED,  "While expected"},
+  {UNBAL_PARENS,    "Unbalanced parentheses"},
+  {FUNC_UNDEF,      "Function undefined"},
+  {TOO_MANY_LVARS,  "Too many local variables"},
+  {DIV_BY_ZERO,     "Division by zero"},
+  {UNDEFINED_TOKEN, "Undefined token"},
+  {TOO_MANY_FUNCS,  "Too many functions"},
+  {TOO_MANY_GVARS,  "Too many global variables"},
+  {TOO_DEEP_NESTING,"Nesting is too deep"},
+  {END_ERR,         "Error Not Found"}
+};
+
 // *****************************************************************************
 // ***   Set buffer with program   *********************************************
 // *****************************************************************************
@@ -848,15 +903,12 @@ int LittleC::get_var_index(char* var_name)
 // *****************************************************************************
 // ***   Assign a value to a variable   ****************************************
 // *****************************************************************************
-bool LittleC::assign_var(char *var_name, data_type data)
+bool LittleC::assign_var_by_index(int var_index, data_type data)
 {
   bool result = true;
 
-  // Get variable index
-  int var_index = get_var_index(var_name);
-
   // Check variable index
-  if(var_index != -1)
+  if((var_index >= 0) && (var_index < NUM_VARS))
   {
     if(var_stack[var_index].data.type == CHAR) var_stack[var_index].data.value = (char)data.value;
     else if(var_stack[var_index].data.type == INT) var_stack[var_index].data.value = (int)data.value;
@@ -871,17 +923,23 @@ bool LittleC::assign_var(char *var_name, data_type data)
 }
 
 // *****************************************************************************
+// ***   Assign a value to a variable   ****************************************
+// *****************************************************************************
+bool LittleC::assign_var(char *var_name, data_type data)
+{
+  // Get variable index and assign the value by it
+  return assign_var_by_index(get_var_index(var_name), data);
+}
+
+// *****************************************************************************
 // ***   Find the value of a variable   ****************************************
 // *****************************************************************************
-bool LittleC::find_var(char* var_name, data_type& data)
+bool LittleC::find_var_by_index(int var_index, data_type& data)
 {
   bool result = true;
 
-  // Get variable index
-  int var_index = get_var_index(var_name);
-
   // Check variable index
-  if(var_index != -1)
+  if((var_index >= 0) && (var_index < NUM_VARS))
   {
     data = var_stack[var_index].data;
     result = true;
@@ -892,6 +950,15 @@ bool LittleC::find_var(char* var_name, data_type& data)
   }
 
   return result;
+}
+
+// *****************************************************************************
+// ***   Find value of variable   **********************************************
+// *****************************************************************************
+bool LittleC::find_var(char* var_name, data_type& data)
+{
+  // Get variable index and read the value by it
+  return find_var_by_index(get_var_index(var_name), data);
 }
 
 // *****************************************************************************
@@ -1418,18 +1485,22 @@ bool LittleC::eval_exp0(data_type& data)
 
   if(token_type == IDENTIFIER)
   {
-    if(is_var(token)) // if a var, see if assignment
+    // Get index of the variable receiving the assignment instead of a copy of
+    // its name: an index and a pointer cost a few bytes of stack, while a name
+    // copy costs sizeof(token) bytes in every recursion level of the
+    // expression parser, which is the deepest recursion in the interpreter.
+    int var_index = get_var_index(token);
+    if(var_index != -1) // if a var, see if assignment
     {
-      // Holds name of var receiving the assignment
-      char temp[sizeof(token)];
-      strncpy(temp, token, sizeof(temp));
-      temp[sizeof(temp) - 1] = '\0';
+      // Points to the first character of the variable name in the program,
+      // used to restore the token if this is not an assignment
+      const char* var_ptr = token_ptr;
       // Get token to figure out if it is an assignment operation
       get_token();
       register char op = *token;
       if((op == '=') || (op == ADD) || (op == SUB) || (op == MUL) || (op == DIV) || (op == MOD))
       {
-        result = find_var(temp, data); // get var's value
+        result = find_var_by_index(var_index, data); // get var's value
         if(result)
         {
           data_type val = {0};
@@ -1457,17 +1528,18 @@ bool LittleC::eval_exp0(data_type& data)
             default:
               data.value = val.value; // assignment
           }
-          if(result) result = assign_var(temp, data);  // assign the value
+          if(result) result = assign_var_by_index(var_index, data);  // assign the value
         }
         // Set flag to not to call eval_exp1()
         ret = true;
       }
       else // not an assignment
       {
-        // Restore original token
-        putback();
-        strncpy(token, temp, sizeof(token));
-        token_type = IDENTIFIER;
+        // Restore original token: rewind the program to the first character of
+        // the variable name and read it again. This restores token, token_type
+        // and token_ptr without keeping a copy of the name on the stack.
+        prog = var_ptr;
+        get_token();
       }
     }
   }
@@ -1779,20 +1851,20 @@ bool LittleC::atom(data_type& data)
       }
       else
       {
-        result = find_var(token, data); // get var's value
-
-        // Save variable name
-        char temp[sizeof(token)];
-        strncpy(temp, token, sizeof(temp));
-        temp[sizeof(temp) - 1] = '\0';
+        // Save variable index instead of a copy of the name: the name is
+        // needed again for the ++/-- assignment below, and an index costs a
+        // few bytes of stack where a name copy costs sizeof(token) bytes in
+        // every recursion level of the expression parser.
+        int var_index = get_var_index(token);
+        result = find_var_by_index(var_index, data); // get var's value
 
         get_token();
-        if((*token == INC) || (*token == DEC))
+        if(result && ((*token == INC) || (*token == DEC)))
         {
           data_type val = data;
           if(*token == INC) val.value++;
           else              val.value--;
-          result = assign_var(temp, val);
+          result = assign_var_by_index(var_index, val);
         }
         else putback();
       }

@@ -135,17 +135,12 @@ static bool IsScriptFile(const FILINFO& fno)
     {
       // Allow only .ms* files for mill and .ls* files for lathe
       if(((GrblComm::GetInstance().GetModeOfOperation() == GrblComm::MODE_OF_OPERATION_MILL)  && (tolower(fno.fname[i+1]) == 'm')) ||
-         ((GrblComm::GetInstance().GetModeOfOperation() == GrblComm::MODE_OF_OPERATION_LATHE) && (tolower(fno.fname[i+1]) == 'l')))
+         ((GrblComm::GetInstance().GetModeOfOperation() == GrblComm::MODE_OF_OPERATION_LATHE) && (tolower(fno.fname[i+1]) == 'l')) ||
+         ((GrblComm::GetInstance().GetModeOfOperation() == GrblComm::MODE_OF_OPERATION_CNT)) ) // If not connected to the controller - show all scripts
       {
         add_file = true;
         break;
       }
-//      // For test only: allow both types of files at once
-//      if((tolower(fno.fname[i+1]) == 'm') || (tolower(fno.fname[i+1]) == 'l'))
-//      {
-//        add_file = true;
-//        break;
-//      }
     }
   }
   // It should be a file with the proper extension, not a directory
@@ -214,9 +209,6 @@ Result GCodeGeneratorScr::ProcessMenuOkCallback(GCodeGeneratorScr* obj_ptr, void
                 }
                 // Switch to the Program Sender screen if successful
                 Application::GetInstance().ChangeScreen(ProgramSender::GetInstance());
-                // The generated program is handed off to the program sender -
-                // this screen must not release it anymore
-                ths.output_buf_owned = false;
               }
               else
               {
@@ -723,13 +715,10 @@ char* GCodeGeneratorScr::AllocateOutputBuffer(uint32_t& size)
 {
   // Release previous allocated pointer(if any)
   ReleaseOutputPointer();
-  // Allocate buffer by ProgramSender(it releases its previous buffer itself)
+  // Allocate buffer by ProgramSender
   char *txt = ProgramSender::GetInstance().AllocateDataBuffer(size);
   // Set output buffer and if successful
   interpreter.SetOutputBuf(txt, size);
-  // The buffer belongs to this screen until it is released or handed off to
-  // the program sender after a successful generation
-  output_buf_owned = (txt != nullptr);
   // Return pointer to buffer - may be used to check if allocation is successful
   return txt;
 }
@@ -742,18 +731,8 @@ void GCodeGeneratorScr::ReleaseOutputPointer()
   // Interpreter may still hold the buffer as the output(error text was
   // written into it) - clear the pointer before the buffer is released
   interpreter.SetOutputBuf(nullptr, 0);
-  // Release the program sender buffer only if this screen actually holds it:
-  // error message boxes are dismissed through this path too, and some of
-  // them are shown on paths that never allocated the buffer("can't open the
-  // file", "IDLE state only") - releasing unconditionally would delete a
-  // program loaded or generated earlier and still owned by the sender.
-  if(output_buf_owned)
-  {
-    // Release buffer in program sender
-    ProgramSender::GetInstance().ReleaseDataPointer();
-    // We don't hold the buffer anymore
-    output_buf_owned = false;
-  }
+  // Release buffer in program sender after message box with an error cleared
+  ProgramSender::GetInstance().ReleaseDataPointer();
 }
 
 // *****************************************************************************

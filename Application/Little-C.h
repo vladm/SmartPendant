@@ -2,17 +2,16 @@
 // ***   A Little C interpreter   **********************************************
 // *****************************************************************************
 
-#define NUM_FUNC    100
-#define NUM_VARS    200
+// Maximum number of functions
+#define NUM_FUNC 100
+
+// Maximum number of variables. Includes global variables variables stack for
+// local variables.
+#define NUM_VARS 200
 
 // Maximum interpreter nesting depth(nested blocks, function calls and
-// parenthesized expressions). Each level of script nesting recurses on the
-// native task stack, so the depth must be limited to prevent stack overflow.
-// Sizing(worst path per level is the eval_exp00..eval_exp5 chain): ~368 bytes
-// at -O0, ~280 bytes at -Og, so 10 levels take at most ~3.7kB of the 6kB
-// Application task stack, leaving room for the frames above the interpreter
-// and below the expression chain(atom/get_token/println/snprintf). Real
-// scripts peak at about 6 levels.
+// parenthesized expressions). Each level of program nesting recurses on the
+// stack, so the depth must be limited to prevent stack overflow.
 #define NEST_DEPTH_MAX 10
 
 class LittleC
@@ -90,7 +89,7 @@ class LittleC
       TOO_MANY_FUNCS, TOO_MANY_GVARS, TOO_DEEP_NESTING, END_ERR
     };
 
-    const char* prog;            // current location in source code
+    const char* prog = nullptr;  // current location in source code
     const char* p_buf = nullptr; // points to start of program buffer
     int p_buf_size = 0;          // size of program buffer, needed to validate calculated indexes
 
@@ -152,25 +151,7 @@ class LittleC
     };
 
     // Keyword lookup table
-    const commands table[15] =
-    {
-      // Commands must be entered lower case in this table.
-      {"void", VOID},
-      {"char", CHAR},
-      {"int", INT},
-      {"if", IF},
-      {"else", ELSE},
-      {"for", FOR},
-      {"do", DO},
-      {"while", WHILE},
-      {"switch", SWITCH},
-      {"case", CASE},
-      {"default", DEFAULT},
-      {"return", RETURN},
-      {"continue", CONTINUE},
-      {"break", BREAK},
-      {"", END}  // mark end of table
-    };
+    static const commands table[15];
 
     // Error messages lookup table
     struct err_msg
@@ -180,36 +161,7 @@ class LittleC
     };
 
     // Error messages
-    const err_msg errors[27] =
-    {
-      {SYNTAX,          "Syntax error"},
-      {NO_EXP,          "No expression present"},
-      {PAREN_EXPECTED,  "Parentheses expected"},
-      {QUOTE_EXPECTED,  "Closing quote expected"},
-      {TOO_LONG_TOKEN,  "Token is too long"},
-      {UNBAL_BRACES,    "Unbalanced braces"},
-      {DUP_VAR,         "Duplicate variable name"},
-      {DUP_FUNC,        "Duplicate function name"},
-      {TYPE_EXPECTED,   "Type specifier expected"},
-      {SEMI_EXPECTED,   "Semicolon expected"},
-      {NEST_FUNC,       "Too many nested function calls"},
-      {RET_NOCALL,      "Return without call"},
-      {PARAM_ERR,       "Parameter error"},
-      {NOT_VAR,         "Not a variable"},
-      {NOT_STRING,      "Not a string"},
-      {BRACE_EXPECTED,  "{ expected (control statements must use blocks)"},
-      {COLON_EXPECTED,  "Colon expected"},
-      {WHILE_EXPECTED,  "While expected"},
-      {UNBAL_PARENS,    "Unbalanced parentheses"},
-      {FUNC_UNDEF,      "Function undefined"},
-      {TOO_MANY_LVARS,  "Too many local variables"},
-      {DIV_BY_ZERO,     "Division by zero"},
-      {UNDEFINED_TOKEN, "Undefined token"},
-      {TOO_MANY_FUNCS,  "Too many functions"},
-      {TOO_MANY_GVARS,  "Too many global variables"},
-      {TOO_DEEP_NESTING,"Nesting is too deep"},
-      {END_ERR,         "Error Not Found"}
-    };
+    static const err_msg errors[27];
 
     bool interp_block(void);
     int find_func(const char* name);
@@ -223,6 +175,8 @@ class LittleC
     bool func_pop(int& param);
     bool func_push(int i);
     int  get_var_index(char* var_name);
+    bool find_var_by_index(int var_index, data_type& data);
+    bool assign_var_by_index(int var_index, data_type data);
     bool assign_var(char* var_name, data_type data);
     bool find_var(char* s, data_type& data);
     bool is_var(char* s);

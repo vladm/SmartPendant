@@ -174,6 +174,15 @@ Result Application::TimerExpired(uint32_t missed_cnt)
 
     // Hide screen
     scr[scr_idx]->Hide();
+
+    // Restore navigation: screen change is disabled by the screen that
+    // streams a program or runs a probing sequence, and only that screen
+    // enables it back - from its own TimerExpired(), which isn't called for
+    // a hidden screen. Since all screens are torn down there, without this
+    // the header and the MPG button stay blocked forever and the pendant
+    // can't be used until the power is cycled.
+    EnableScreenChange();
+
     // Initialize header
     InitHeader();
     // Setup all screens

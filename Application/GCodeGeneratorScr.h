@@ -78,13 +78,6 @@ class GCodeGeneratorScr : public IScreen
     // Pointer to text buffer used if program loaded completely
     char* p_text = nullptr;
 
-    // Set when the ProgramSender data buffer is allocated by this screen
-    // (prescan scratch or generation output) and not yet released or handed
-    // off. ReleaseOutputPointer() releases the buffer only when this flag is
-    // set: it also runs on error box dismissal, and some error boxes are
-    // shown on paths that never allocated the buffer.
-    bool output_buf_owned = false;
-
     // Interpreter for C-like language to generate G-Code
     LittleC interpreter;
 
