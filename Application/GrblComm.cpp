@@ -50,7 +50,7 @@ GrblComm& GrblComm::GetInstance(void)
 // *****************************************************************************
 // ***   Init GrblComm Task   **************************************************
 // *****************************************************************************
-Result GrblComm::InitTask(StHalUart& uart_in)
+Result GrblComm::InitTask(IUart& uart_in)
 {
   // Save UART handle
   uart = &uart_in;
@@ -1919,12 +1919,31 @@ void GrblComm::PollSerial(void)
   while(uart->Read(c) == Result::RESULT_OK)
   {
     // If ASCII_CAN received or buffer is full
-    if((c == 0x18u) || (rx_char_cnt >= NumberOf(rx_buf) - 3u)) //  minus one for null-terminator, minus 2 for \n\r for USB debug
+    if((c == ASCII_CAN) || (rx_char_cnt >= NumberOf(rx_buf) - 3u)) //  minus one for null-terminator, minus 2 for \n\r for USB debug
     {
       rx_char_cnt = 0u;
+      skip_until_lf = true;
+    }
+    // Transport gave up on the command in flight - it never reached the
+    // controller. Same handling as an "error:" response, so the caller sees a
+    // failed command rather than one whose result never arrives.
+    else if(c == ASCII_NAK)
+    {
+      // Save cmd response timestamp - this is a command response too
+      cmd_rx_timestamp = RtosTick::GetTimeMs();
+      grbl_status = Status_Comm_Error;
+      grbl_changed.error = true;
+      respond_pending = false;
     }
     else if(((c == '\n') || (c == '\r'))) // Line received
     {
+      // If this flag is set - we are skipping all characters until line feed received.
+      // This is used to skip garbage after CAN received or buffer overflow.
+      if(skip_until_lf)
+      {
+        rx_char_cnt = 0u;
+        skip_until_lf = false;
+      }
       // If we have at least one character
       if(rx_char_cnt > 0u)
       {

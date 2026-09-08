@@ -26,6 +26,7 @@
 // Application
 #include "Application.h"
 #include "GrblComm.h"
+#include "FramedUart.h"
 #include "Tetris.h"
 
 // Hardware
@@ -64,12 +65,17 @@ static StHalGpio buzzer_pin(BUZZER_GPIO_Port, BUZZER_Pin, IGpio::OUTPUT);
 // Interfaces
 static StHalSpi spi1(hspi1);
 static StHalIicThreadSafe iic1(hi2c1);
-static StHalUart uart1(huart1);
+static StHalUart uart(huart1);
 // Display & touch
 static ILI9488 display(480, 320, spi1, display_cs, display_dc, &display_rst);
 static FT6236 touch(iic1, ITouchscreen::ROTATION_LEFT, 320u, 480u);
 // NVM: MB85RC256V, no write protection, size 32kB, no pages, but 64 used since we allocate buffer for it
 static Eeprom24 eep(iic1, nullptr, 0x8000u, 64u);
+
+// Framed UART transport layer(not static to allow SettingScr access via extern declaration)
+FramedUart framed_uart(uart);
+// Transport actually in use - the setting takes effect on reboot only
+bool framed_transport_in_use = false;
 
 // *****************************************************************************
 // ***   Main function   *******************************************************
@@ -97,8 +103,19 @@ extern "C" void AppMain(void)
   }
   else
   {
-    // Init GRBL Communication task
-    GrblComm::GetInstance().InitTask(uart1);
+    // Read NVM data to get UART mode
+    NVM::GetInstance().ReadData();
+    // Update UART speed(via framed_uart to recalculate timeout for framed mode)
+    framed_uart.SetBaudRate(NVM::GetInstance().GetValue(NVM::BAUD_RATE));
+    // Transmissions per frame before the link is declared down. Has to
+    // match the controller's "frame attempts" setting - see SetAttempts().
+    framed_uart.SetAttempts(NVM::GetInstance().GetValue(NVM::FRAME_ATTEMPTS));
+    // Floor under the baud derived acknowledge timeout, 0 = derived value
+    framed_uart.SetAckTimeoutFloor(NVM::GetInstance().GetValue(NVM::ACK_MIN_MS));
+    // Find which uart class should be used - plain or framed
+    framed_transport_in_use = (NVM::GetInstance().GetValue(NVM::TRANSPORT) != 0);
+    // Init GRBL Communication task with appropriate uart handle
+    GrblComm::GetInstance().InitTask(framed_transport_in_use ? (IUart&)framed_uart : (IUart&)uart);
     // Init Application Task
     Application::GetInstance().InitTask();
   }

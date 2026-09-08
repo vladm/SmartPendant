@@ -76,8 +76,14 @@ class SettingsScr : public IScreen
     virtual Result ProcessCallback(const void* ptr);
 
   private:
-    // Number of menu strings. Set to max number on tab.
-    static constexpr uint32_t MENU_ITEMS = 12u;
+    // Number of menu strings. Set to max number on tab - the Info tab with
+    // the link counters is the widest one.
+    static constexpr uint32_t MENU_ITEMS = 14u;
+
+    // The Info tab always starts with the transport line, whatever follows
+    // it - the counters below only exist in framed mode. Cancel on this row
+    // clears them.
+    static constexpr uint32_t INFO_TRANSPORT_ITEM = 0u;
 
     // Enum with menu items
     enum
@@ -85,6 +91,7 @@ class SettingsScr : public IScreen
       GENERAL_TAB,
       MPG_TAB,
       PROBE_TAB,
+      INFO_TAB,
       MAX_TABS
     };
 
@@ -93,7 +100,7 @@ class SettingsScr : public IScreen
     {
       "Version",
       // General
-      "MPG request", "Display Inversion", "Auto MPG on startup", "Save script result",
+      "MPG request", "UART Baud Rate", "Transport", "Frame attempts", "Min ack timeout", "Auto MPG on startup", "Save script result", "Display Inversion",
       // MPG
       "Metric Feed 1", "Metric Feed 2", "Metric Feed 3", "Metric Feed 4",
       "Imperial Feed 1", "Imperial Feed 2", "Imperial Feed 3", "Imperial Feed 4",
@@ -112,6 +119,9 @@ class SettingsScr : public IScreen
     // Menu object
     Menu menu;
 
+    // Last Update time
+    uint32_t update_time_ms = 0u;
+
     // Object to change numerical parameters
     ChangeValueBox& change_box;
 
@@ -129,6 +139,11 @@ class SettingsScr : public IScreen
     // ***   Private: ProcessMenuCallback function   ***************************
     // *************************************************************************
     static Result ProcessMenuCallback(SettingsScr* obj_ptr, void* ptr);
+
+    // *************************************************************************
+    // ***   Private: ProcessMenuCancelCallback function   *********************
+    // *************************************************************************
+    static Result ProcessMenuCancelCallback(SettingsScr* obj_ptr, void* ptr);
 
     // *************************************************************************
     // ***   Private: ProcessButtonCallback function   *************************

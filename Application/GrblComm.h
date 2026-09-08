@@ -141,6 +141,33 @@ class GrblComm : public AppTask
     };
 
     // *************************************************************************
+    // ***   Received cancel character   ***************************************
+    // *************************************************************************
+    // * Same value as CMD_RESET above, but the meaning depends on which way it
+    // * travels. Sent TO the controller, 0x18 soft resets grblHAL. Arriving
+    // * FROM it, it only says "the line you were assembling is gone" - so the
+    // * receive path throws away the partial line and waits for the next
+    // * terminator before parsing anything.
+    // *
+    // * FramedUart inserts one of these ahead of the first payload after lost
+    // * frames, which is the only reason the pendant sees it in practice. Its
+    // * RESYNC_MARKER has to keep this value, and the branch that handles it in
+    // * PollSerial() is not dead code even though nothing here sends one.
+    static const uint8_t ASCII_CAN = 0x18u;
+
+    // *************************************************************************
+    // ***   Received command lost character   *********************************
+    // *************************************************************************
+    // * Injected by the transport, never sent by the controller: it says the
+    // * command still waiting for a response was given up on and never
+    // * arrived. Handled like a failed command so a caller streaming a program
+    // * stops instead of moving on - a skipped g-code line moves the machine
+    // * somewhere the operator never asked for.
+    // *
+    // * FramedUart::CMD_LOST_MARKER has to keep this value.
+    static const uint8_t ASCII_NAK = 0x15u;
+
+    // *************************************************************************
     // ***   Alarm executor codes. Zero is reserved.   *************************
     // *************************************************************************
     typedef enum : uint8_t
@@ -295,7 +322,7 @@ class GrblComm : public AppTask
     // *************************************************************************
     // ***   Public: Init GrblComm Task   **************************************
     // *************************************************************************
-    Result InitTask(StHalUart& uart_in);
+    Result InitTask(IUart& uart_in);
 
     // *************************************************************************
     // ***   Public: Setup function   ******************************************
@@ -906,7 +933,7 @@ class GrblComm : public AppTask
     static const char* const feed_units[MEASUREMENT_SYSTEM_CNT];
 
     // Pointer to UART class
-    StHalUart* uart = nullptr;
+    IUart* uart = nullptr;
 
     // Buffer for transmit data
     uint8_t tx_buf[256u];
@@ -915,6 +942,8 @@ class GrblComm : public AppTask
 
     // Counter for received characters
     uint16_t rx_char_cnt = 0u;
+    // Flag to skip bytes until next line feed character
+    bool skip_until_lf = false;
 
     // Flag to show if we trying to gain control
     bool mpg_mode_request = false;

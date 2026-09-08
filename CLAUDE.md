@@ -4,21 +4,34 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Firmware for the **SmartPendant** — a touchscreen MPG/DRO pendant for **grblHAL** CNC controllers. Target MCU is an **STM32F411CEU** (WeAct BlackPill). It drives a 480×320 ILI9488 SPI display with an FT6236 capacitive touch controller, a 100 PPR quadrature handwheel, three buttons, a buzzer, and MB85RC256V FRAM for settings. It talks to the grblHAL controller over UART configured in **"MPG & DRO mode"**.
+Firmware for the **SmartPendant** — a touchscreen MPG/DRO pendant for **grblHAL** CNC controllers. Target MCU is an **STM32F411CEU** (WeAct BlackPill): 128 kB RAM, 512 kB flash, single-precision FPU only (`double` is soft-float and pulls in `__aeabi_d*`).
+
+Hardware: an ILI9488 SPI display (480×320 panel driven **in portrait**, see below), an FT6236 capacitive touch controller, a 100 PPR quadrature handwheel, **seven buttons** (2 face, 4 side, 1 USR on the BlackPill — see `InputDrv::ButtonType`), a buzzer, MB85RC256V FRAM (32 kB) for settings, and an SD card. It talks to the grblHAL controller over UART in **"MPG & DRO mode"**, either as a plain byte stream or through the framed transport (see `FramedUart` below).
+
+### Screen geometry — derive from code, don't assume
+
+The panel is 480×320 but `Application` sets `IDisplay::ROTATION_RIGHT`, so the framebuffer is **320 wide × 480 tall**. `GetScreenW()` returns 320.
+
+| region | y |
+|---|---|
+| header | 0 – 40 |
+| **area handed to a screen's `Setup(y, height)`** | **40 – 410 → 320 × 370 px** |
+| status box | 410 – 442 |
+| soft buttons | 444 – 480 |
+
+Fonts available: `Font_4x6`, `Font_6x8`, `Font_8x8`, `Font_8x12`, `Font_10x18`, `Font_12x16` (names are width×height). A menu row fits 32 characters at `Font_10x18`.
 
 ## Repository setup (do this first)
 
-`DevCore/` is a **git submodule** (https://github.com/nickshl/DevCore.git) and is **not vendored** in this repo. The base framework (`AppTask`, `DisplayDrv`, `SoundDrv`, UI widgets `UiButton`/`String`/`DataWindow`, `RtosTick`, HAL wrappers `StHal*`, display/touch/eeprom drivers, fonts) all live there.
+`DevCore/` is a **git submodule** (https://github.com/nickshl/DevCore.git) and is **not vendored**. The base framework (`AppTask`, `DisplayDrv`, `SoundDrv`, UI widgets `UiButton`/`String`/`DataWindow`, `RtosTick`, HAL wrappers `StHal*`, display/touch/eeprom drivers, fonts) lives there.
 
 ```
-git submodule update --init --recursive     # if the repo was cloned without --recurse-submodules
+git submodule update --init --recursive     # if cloned without --recurse-submodules
 ```
 
-The base classes that `Application/` code inherits from and calls into are defined under `DevCore/` (see the include dirs in `CMakeLists.txt`). When a symbol isn't found in `Application/`, look in `DevCore/`.
+When a symbol isn't found in `Application/`, look in `DevCore/`.
 
 ## Building
-
-Two supported paths (see `README.md` for full detail):
 
 - **STM32CubeIDE** — import the project (`.cproject`/`.project`), build, flash with STM32CubeProgrammer.
 - **CMake + arm-none-eabi** (CMake ≥ 4.0.0):
@@ -27,9 +40,19 @@ Two supported paths (see `README.md` for full detail):
   cmake -DCMAKE_TOOLCHAIN_FILE=./cmake/arm_none_eabi_gcc.cmake -DCMAKE_BUILD_TYPE=Debug ..
   make
   ```
-  `CMakeLists.txt` globs sources from `DevCore/ Drivers/ Middlewares/ Src/ Startup/ Application/`. Key compile defs: `STM32F411xE`, `USE_HAL_DRIVER`, `SWAP_BUTTONS=1`. Links against the flash linker script `STM32F411CEUX_FLASH.ld`. Post-build produces `.elf`, `.hex`, `.bin`, `.lst`, and a size report.
+  `CMakeLists.txt` globs sources from `DevCore/ Drivers/ Middlewares/ Src/ Startup/ Application/`. Key compile defs: `STM32F411xE`, `USE_HAL_DRIVER`, `SWAP_BUTTONS=1`. Post-build produces `.elf`, `.hex`, `.bin`, `.lst` and a size report.
 
-There are **no unit tests** and no host build — this is bare-metal firmware; the only "run" is flashing hardware. Verification is manual on-device.
+### Host-testing self-contained components
+
+The firmware as a whole only runs on hardware, but **several components build and run on a PC with small stubs**, and doing so has found real bugs that reading did not:
+
+- `Little-C.cpp` needs only a stub `GrblComm.h` (four methods). Running all scripts in `Scripts/` through an old and a new build and diffing the emitted G-code is a strong regression test.
+- `FramedUart.cpp` needs stub `DevCore.h`/`IUart.h`. A simulated controller implementing `PROTOCOL.md` plus fault injection (frame loss, bit corruption) verifies the protocol properly. Build the fuzzing suite with `-fsanitize=address,undefined` or it proves little, and change the fuzz seed before trusting a clean result — a fixed seed proves less than it looks like it does.
+- `Decimal32.h` is header-only and fully host-testable.
+
+`arm-none-eabi-gcc -Os -fstack-usage` and `arm-none-eabi-size` give real stack/flash numbers — prefer measuring to estimating.
+
+**When verifying, delete the old binaries before rebuilding.** Stale executables printing "all tests passed" after a failed compile has caused false confidence more than once.
 
 ## Flashing / bootloader entry
 
@@ -38,27 +61,60 @@ From **v0.027.0** on, holding the **top-edge (MPG / USR) button** at power-on ca
 ## Architecture
 
 ### Startup (`Application/AppMain.cpp`)
-`AppMain()` is the C entry point called from the CubeMX-generated `Src/` code. It: auto-detects the crystal (8 vs 25 MHz) and configures the PLL; checks the USR button for bootloader entry; instantiates HAL-wrapper objects for every peripheral (`StHalSpi/Iic/Uart/Gpio`, `ILI9488`, `FT6236`, `Eeprom24`); then starts the FreeRTOS tasks: `NVM`, `DisplayDrv`, `SoundDrv`, `InputDrv`, and either **`Tetris`** (if the left-up button is held at boot — an easter egg) or the normal **`GrblComm` + `Application`** pair.
+`AppMain()` is the C entry point called from the CubeMX-generated `Src/` code. It auto-detects the crystal (8 vs 25 MHz) and configures the PLL; checks the USR button for bootloader entry; instantiates HAL-wrapper objects for every peripheral (`StHalSpi/Iic/Uart/Gpio`, `ILI9488`, `FT6236`, `Eeprom24`); reads settings from FRAM; then starts the FreeRTOS tasks: `DisplayDrv`, `SoundDrv`, `InputDrv`, and either **`Tetris`** (if the left-up button is held at boot — an easter egg) or the normal **`GrblComm` + `Application`** pair.
+
+`NVM` is **not** a task — it's a plain class. `NVM::ReadData()` reaches the EEPROM through blocking `HAL_I2C_Mem_Read` with no RTOS primitives, so it is safe to call from `AppMain` before the scheduler starts. That is what makes settings available in time to configure and choose the UART link layer.
 
 ### Task model
-Everything of substance is a **singleton FreeRTOS task** subclassing `AppTask` (from DevCore), accessed via `X::GetInstance()`. Tasks override `Setup()`, `TimerExpired(interval)`, `ProcessMessage()`, and `ProcessCallback(ptr)`, and return a `Result`. Cross-task calls are marshaled onto the target task via `AppTask::Callback(...)` so work runs in the right task context.
+Everything of substance is a **singleton FreeRTOS task** subclassing `AppTask` (from DevCore), accessed via `X::GetInstance()`. Tasks override `Setup()`, `TimerExpired(interval)`, `ProcessMessage()` and `ProcessCallback(ptr)`, returning a `Result`. Cross-task calls are marshaled via `AppTask::Callback(...)`.
+
+A message that can't be handled now is **re-queued to the front by `ProcessMessage()` itself** (see `GrblComm`: on `ERR_BUSY`/`ERR_UART_BUSY` it calls `SendTaskMessage(&rcv_msg, true)` and delays a tick). `AppTask` does not re-queue for you, but nothing is dropped either — this is the documented pattern.
 
 ### Screens (`IScreen`)
-The UI is a stack of screens implementing `Application/IScreen.h` (`Setup/Show/Hide/TimerExpired/ProcessCallback`). `Application` owns the screen array `scr[]` and switches between them with `ChangeScreen()` — which calls the old screen's `Hide()` **before** the new screen's `Show()`. Screen set depends on the controller's mode of operation (MILL vs LATHE). Navigation across top-level screens is via the `Header` page tabs. Screens include: DirectControl (MPG jog), OverrideCtrl, DelayControl (power feed), RotaryTable, ProgramSender (G-code sender), GCodeGenerator, Probe, Settings. `MsgBox` and `ChangeValueBox` are modal overlays shown on top of the active screen.
+A stack of screens implementing `Application/IScreen.h` (`Setup/Show/Hide/TimerExpired/ProcessCallback`). `Application` owns `scr[]` and switches with `ChangeScreen()`, which calls the old screen's `Hide()` **before** the new screen's `Show()`. The screen set depends on the controller's mode of operation (MILL vs LATHE). Navigation is via `Header` page tabs (`Header::MAX_PAGES` = 8). Screens: DirectControl (MPG jog), OverrideCtrl, DelayControl (power feed), RotaryTable, ProgramSender, GCodeGenerator, Probe, Settings. `MsgBox` and `ChangeValueBox` are modal overlays.
+
+`Tabs` (in `Application/`, not DevCore) has a `MAX_TABS` limit and `SetParams()` **silently clamps** to it — a tab beyond the limit just never appears.
+
+Anything a screen leaves set in `Hide()` outlives it: screens are also torn down by the settings-changed re-init in `Application::TimerExpired()`, which bypasses `DisableScreenChange()`. Reset run/sequence state in `Hide()`.
 
 ### Input (`Application/InputDrv.*`)
-Timer-driven task reading the quadrature encoder, three GPIO buttons (debounced), and the FT6236 touch controller. Screens **register** encoder/button callbacks in `Show()` and **remove** them in `Hide()` via `Add/DeleteEncoderCallbackHandler` / `...ButtonsCallbackHandler`. Callbacks are stored in intrusive doubly-linked lists (`CallbackListEntry`). `Application` registers a persistent button handler at startup that is never removed; there is **no** persistent encoder handler.
+Timer-driven task reading the quadrature encoder, buttons (debounced) and the FT6236. Screens **register** encoder/button callbacks in `Show()` and **remove** them in `Hide()`. Callbacks live in intrusive doubly-linked lists guarded by a mutex; new handlers are inserted at the **head**, and only the **first matching** handler is notified — so the most recently shown object wins, which is why a modal must be shown *after* the screen beneath it.
 
 ### grblHAL communication (`Application/GrblComm.*`) — the core, and the trickiest code
-Singleton UART task. Parses grblHAL real-time status reports (`<...>`), messages (`[...]`, e.g. `PRB:`/`TLO:`/`AXS:`), settings (`$...`), `ok`/`error:` responses. Maintains a **timing/handshake state machine** for gaining and releasing MPG control (`GainControl()`, `status_tx_timestamp`/`status_rx_timestamp`/`status_received`, `mpg_mode_request`, `respond_pending`). Axis data is stored in `[AXIS_CNT]` (=6, XYZABC) arrays; `number_of_axis` is what the controller reports; `GetLimitedNumberOfAxis(n)` is the safe accessor UI code uses when iterating axes. Uncomment `#define SEND_DATA_TO_USB` in `GrblComm.h` to mirror all controller traffic to a USB CDC serial port for debugging.
+Singleton UART task, 1 ms tick. Parses real-time status reports (`<...>`), messages (`[...]`, e.g. `PRB:`/`TLO:`/`AXS:`), settings (`$...`), and `ok`/`error:` responses. Maintains a timing/handshake state machine for gaining and releasing MPG control. Axis data is stored in `[AXIS_CNT]` (=6, XYZABC) arrays; `GetLimitedNumberOfAxis(n)` is the safe accessor for iterating axes. Uncomment `#define SEND_DATA_TO_USB` in `GrblComm.h` to mirror traffic to USB CDC.
+
+`InitTask()` takes an **`IUart&`**, not a concrete UART, which is what lets `AppMain` hand it either the raw hardware UART or a `FramedUart`. `GrblComm` is unaware of which it got.
+
+Three things that are easy to get wrong:
+- **`[PRB:...]` is always in machine coordinates**, regardless of the `$10` WPos/MPos setting (grblHAL `report_probe_parameters()`). The axis-position getters convert by report frame; the probe getters must not.
+- **Real-time commands are always a single-byte write** (`msg.id == 0`, `msg.cmd[1] = '\0'`), while g-code lines always carry a terminator and are ≥2 bytes. The framed transport relies on this to pick its channel — keep the invariant.
+- **`PollSerial()` reassembles lines across read boundaries** and must keep doing so. Two control bytes are handled there, and **neither branch is dead code** even though nothing in `GrblComm` ever sends them — `FramedUart` injects both (see below). `ASCII_CAN` (0x18) clears the partial line and sets `skip_until_lf`, which discards everything up to the next terminator. `ASCII_NAK` (0x15) means the command still awaiting a response was given up on and never arrived; it is handled like an `error:` response so a caller streaming a program stops rather than moving on.
+
+### UART link layer (`Application/FramedUart.*`)
+`FramedUart` is an `IUart` that wraps another `IUart`, adding framing, CRC, sequencing, acknowledgement and retransmission for the grblHAL MPG link. The controller side is the **`Plugin_mpg_transport`** plugin; its `PROTOCOL.md` is normative, and when the document and `mpg_transport.c` disagree, **the code is correct**. `AppMain` decides which object to hand over, after reading settings and before creating the task. **Reboot only**; both ends must be configured to match, there is no negotiation and no fallback.
+
+The block comment at the top of `FramedUart.h` is the design summary — read it first. Design points worth not re-deriving:
+
+- Channel is chosen by write length (1 byte → real-time channel), never by inspecting content.
+- Back pressure lives in `Write()` returning `ERR_UART_BUSY` per channel. `IsTxComplete()` means "can accept something" and is false only when *both* channels are waiting — gating it on acknowledgement alone delays a feed hold behind a retransmitting g-code frame (measured 2 ms → 302 ms).
+- The acknowledge timeout is derived from the baud rate, so `SetBaudRate()` must be called **on the `FramedUart`**, not on the wrapped hardware UART. `NVM::ACK_MIN_MS` raises it and can never lower it — the timing rule is one-sided, and lowering it below the derived value makes every frame go out twice.
+- `MAX_ATTEMPTS` counts **transmissions**, not retries. Timeouts and Naks share one budget, so a peer that keeps sending Nak can't hold a channel forever. Both paths go through `RetransmitOrDrop()`.
+- Sequence 0 is reserved for the first frame after a reset; rotation is 1..255 wrapping to 1 (`NextSeq()`). Duplicate detection is the **sequence number alone** — adding the CRC would make suppression depend on the peer retransmitting byte-identically, and a peer that rebuilds a frame would get a move executed twice.
+- **A command is always one frame and is never split.** The controller counts an inbound gap but deliberately does not act on it, so a split command lost mid-way would leave a fragment in grblHAL's line buffer that can still parse as valid g-code.
+- When frames are lost, `FramedUart` writes `RESYNC_MARKER` (0x18) into the receive buffer ahead of the next payload, **atomically with it** — a payload must never reach the reader without it. This keeps the transport unaware of its reader; `GrblComm` already gave that byte the right meaning.
+- When a **command** frame is given up on, `FramedUart` writes `CMD_LOST_MARKER` (0x15). Without it the reader waits for a response that can never arrive, and the 300 ms status watchdog then advances `send_id`, so `GetCmdResult()` reports `Status_Next_Cmd_Executed` — which `ProgramSender` reads as success and streams the next line. A silently skipped g-code line moves the machine somewhere nobody asked for. Only the command channel reports (`tx_channel_t::report_loss`); a real time frame has no response outstanding. The byte is **retried rather than dropped** if the receive buffer is full, since a full buffer means the reader is stalled — exactly when losing it would cost a line.
 
 ### Settings / NVM (`Application/NVM.*`)
-Settings are a struct persisted to FRAM/EEPROM over I2C (`Eeprom24`), CRC-protected (`crc` is the last struct field; the CRC is computed over everything except itself). Parameters are addressed by the `NVM::Parameters` enum; `menu_strings[NVM::MAX_VALUES]` in `SettingsScr` is indexed by that **absolute** enum value. `EEP_VERSION` in `Version.h` guards layout migrations.
+Settings are a struct persisted to FRAM over I2C (`Eeprom24`), CRC-protected (`crc` is the last field; the CRC covers everything before it). Parameters are addressed by the `NVM::Parameters` enum, and `menu_strings[NVM::MAX_VALUES]` in `SettingsScr` is indexed by that **absolute** enum value — the two must stay in step.
 
-### Script-driven G-code generation — the non-obvious subsystem
-`GCodeGeneratorScr` runs user **scripts** through an embedded C interpreter (`Application/Little-C.*`) to emit G-code programs, which are then handed to `ProgramSender`. Scripts live in `Scripts/` on the SD card: **`.ms` = mill**, **`.ls` = lathe** (filtered by the controller's mode of operation).
+Link parameters are `BAUD_RATE`, `TRANSPORT`, `FRAME_ATTEMPTS` and `ACK_MIN_MS`. The last two mirror controller settings and should be set to the same values; they are applied immediately, while baud and transport need a reboot.
 
-Scripts are near-C and declare their tunable parameters as **global variable declarations with a structured trailing comment** that the generator parses to build the parameter-entry UI:
+**Adding a parameter resets every setting to defaults.** The array is sized `MAX_VALUES`, so a new entry changes `sizeof(data)`, which moves both the CRC's coverage and its position; the check then fails and defaults load. The `EEP_VERSION` block in `ReadData()` is currently empty, so it provides no migration. If this becomes painful, the cheapest fix is a fixed-size storage array (e.g. 128 slots) with unused slots written as a sentinel, so appending a parameter preserves the others.
+
+### Script-driven G-code generation
+`GCodeGeneratorScr` runs user **scripts** through an embedded C interpreter (`Application/Little-C.*`) to emit G-code, handed to `ProgramSender`. Scripts live in `Scripts/` on the SD card: **`.ms` = mill**, **`.ls` = lathe** (filtered by mode of operation).
+
+Scripts are near-C and declare tunable parameters as global variable declarations with a structured trailing comment that the generator parses to build the parameter-entry UI:
 
 ```c
 int step = 3000;      // Step for pass; 1000; mm; 0; 1000000
@@ -67,21 +123,39 @@ int coolant = 0;      // Coolant; 0; Flood; Mist; None
                       //   name  ; 0 == enum marker; enum labels...
 ```
 
-`main()` emits G-code by calling built-ins: `println(...)`/`print(...)`/`puts(...)`/`putch(...)`, `GetAxisPosX/Y/Z()`, `abs()`, `sqrt()`. `println` accepts a literal string plus optional value args. The interpreter has a fixed 80-byte token buffer, a variable stack (`var_stack`, split into local-frame + global regions via `call_stack`/`functos`/`gvar_index`), and a function table. Generated output can optionally be written to `Result.nc` on the SD card when `NVM::SAVE_SCRIPT_RESULT` is enabled.
+`main()` emits G-code via built-ins: `println(...)`/`print(...)`/`puts(...)`/`putch(...)`, `GetAxisPosX/Y/Z()`, `abs()`, `sqrt()`. The interpreter has a fixed 80-byte token buffer (so **no string literal in a script may reach 80 characters** — build long output lines from several `print`/`println` calls), a variable stack split into local-frame and global regions, a function table, and a nesting-depth limit that bounds recursion. Output can be written to `Result.nc` when `NVM::SAVE_SCRIPT_RESULT` is enabled.
 
 ## Conventions (match these when editing)
 
-- **File-scoped singletons**: `X::GetInstance()`. Members are initialized inline in the header.
+- **File-scoped singletons**: `X::GetInstance()`. Members initialized inline in the header.
 - Functions return `Result` (`RESULT_OK`, `ERR_*`); check it.
 - Unsigned literals get a `u` suffix (`300u`, `0u`); `nullptr` not `NULL`.
 - Array sizes via the `NumberOf(arr)` macro, never a hard-coded count.
-- MISRA-flavored style: exhaustive `if/else if/else`, with empty final branches written as `else { ; // Do nothing - MISRA rule }`.
-- Dense banner comments (`// ***`) precede every function; keep the format.
-- Time via `RtosTick::GetTimeMs()`; tick math uses unsigned wraparound subtraction — preserve that idiom.
+- **MISRA empty else**: required only to terminate an `if … else if` chain (Rule 15.7). A plain `if` with no `else if` does **not** need `else { ; // Do nothing - MISRA rule }` — don't add them.
+- `inline` on member functions **defined in the class body with a single statement**; omitted on multi-line ones. (In-class definitions are implicitly inline; the keyword is a readability convention here.)
+- Prefer a `bool` parameter with named `static constexpr bool` constants over a small enum.
+- **Dense banner comments (`// ***`) precede every function — they are navigation, not decoration.** Keep the format and don't "clean them up": they are how a human scrolls a 660-line header. Scope label is `Public:`, `Private:`, or `Global:` for file-scope functions.
+- Time via `RtosTick::GetTimeMs()`; tick math uses unsigned wraparound subtraction — preserve that idiom. For "has N ms passed since", use `RtosTick::CheckTimeDifferenceMs(timestamp, ms)` rather than comparing an absolute deadline, which breaks at the 49.7-day rollover.
+- Comments should explain *why*. In reusable DevCore-style classes, keep them free of machine-specific units and assumptions.
 
 ## Gotchas
 
 - **Bump the version** in `Application/Version.h` (`VERSION_MAJOR/MINOR/BUILD`) for a release build — there's a literal "DON'T FORGET TO CHANGE IT" note there.
-- **`Src/` and `Inc/` are CubeMX-generated** from `SmartPendant.ioc`. Regenerating from the `.ioc` will overwrite HAL init / peripheral config — hand edits there are fragile. Application logic belongs in `Application/`.
-- Malloc-failure hook is intentionally a no-op: `ProgramSender` relies on `new` returning `nullptr` when a program is too large to allocate — don't "fix" that hook to trap.
+- **`Src/` and `Inc/` are CubeMX-generated** from `SmartPendant.ioc`. Regenerating overwrites HAL init / peripheral config — hand edits there are fragile. Application logic belongs in `Application/`.
+- **Allocations that may fail must use `new(std::nothrow)`.** DevCore overrides global `operator new` to call `Break()` on failure, which is `bkpt #0` — a hard fault on a unit with no debugger attached. `ProgramSender` deliberately allocates the largest free block and falls back to line-by-line streaming when it can't, which only works with the nothrow form.
 - Robustness matters: this parses live, sometimes noisy, UART data and reads arbitrary SD card filenames — guard string parsing (`strchr`/length math) and array bounds; malformed input must not fault.
+- G-code lines are limited to **80 characters** (`TextBox::MAX_LINE_LEN`). Programs are checked at load; a longer line means the file is refused, not truncated mid-run.
+- The status watchdog sets `grbl_state = UNKNOWN` after 300 ms without a report, but does **not** clear `grbl_mpgMode`, so `IsInControl()` stays true after a link loss.
+- **`GrblComm::TimerExpired()` advances `send_id` on its watchdog recovery path**, which turns a command whose fate is unknown into `Status_Next_Cmd_Executed` — and `ProgramSender` treats that as success, skipping the line. `FramedUart` preempts this by reporting the loss directly, but **plain transport has no loss detection**, so the hazard remains there. The fix is to not advance `send_id`; `GrblComm.cpp` has one branch that reads `Status_Next_Cmd_Executed` as meaningful rather than as a failure — check it first.
+
+### Invariants nothing enforces
+
+Break any of these and it still compiles.
+
+- **`FramedUart::RESYNC_MARKER` == `GrblComm::ASCII_CAN`** (both 0x18) and **`FramedUart::CMD_LOST_MARKER` == `GrblComm::ASCII_NAK`** (both 0x15). They can't share a header — the transport must not know its reader.
+- **The wire format block at the top of `FramedUart.h` is a COPY** of the plugin's `mpg_transport.h` (constants, frame type enum, CRC, frame builder). The pendant can't include a grblHAL header, so nothing checks they agree. Names are deliberately identical so the block can be diffed; expected differences are house formatting only. The host conformance suite checks the CRC and frame vectors from `PROTOCOL.md`, which catches a real divergence.
+- **Statistics counters must stay `uint32_t`.** `SettingsScr` reads them from the Application task while the comm task writes them, without a lock — safe only because a 32-bit aligned word loads and stores atomically on this core.
+- **General tab rows must stay contiguous from `NVM::TX_CONTROL`.** `SettingsScr` maps menu index to NVM index by fixed offset in two places; inserting a parameter mid-enum without adding the row in the matching position silently misroutes every row below it.
+- **`NVM::Parameters`, the defaults array, and `SettingsScr::menu_strings[]` must stay index-for-index aligned.**
+- **`GrblComm::msg_t::cmd[]` must not exceed the transport's maximum payload.** At 128 there is exactly one byte of margin. Grow it and long commands are silently dropped in framed mode — `Write()` returns `ERR_BAD_PARAMETER`, which `ProcessMessage()` does not re-queue — while plain mode keeps working.
+- **`Menu` passes row 0 as `(void*)0`, which is `nullptr`.** Adding an `if(ptr != nullptr)` guard to a menu callback silently disables the first row.

@@ -45,9 +45,13 @@ class NVM
       VERSION,
       // General
       TX_CONTROL,
-      SCREEN_INVERT,
+      BAUD_RATE,
+      TRANSPORT,
+      FRAME_ATTEMPTS,
+      ACK_MIN_MS,
       AUTO_MPG_ON_START,
       SAVE_SCRIPT_RESULT,
+      SCREEN_INVERT,
       // MPG
       MPG_METRIC_FEED_1,
       MPG_METRIC_FEED_2,
@@ -123,28 +127,32 @@ class NVM
         // 8 bit major, 16 bit minor, 8 bit build
         EEP_VERSION,
         // General
-        2,    // TX_CONTROL
-        0,    // SCREEN_INVERT
-        0,    // AUTO_MPG_ON_START
-        0,    // SAVE_SCRIPT_RESULT
+        2,      // TX_CONTROL
+        115200, // BAUD_RATE
+        0,      // TRANSPORT
+        4,      // FRAME_ATTEMPTS: same default as the controller's $ setting
+        0,      // ACK_MIN_MS: 0 = use the baud derived timeout unchanged
+        0,      // AUTO_MPG_ON_START
+        0,      // SAVE_SCRIPT_RESULT
+        0,      // SCREEN_INVERT
         // MPG
-        1,    // MPG_METRIC_FEED_1: 0.001 mm
-        5,    // MPG_METRIC_FEED_2: 0.005 mm
-        10,   // MPG_METRIC_FEED_3: 0.010 mm
-        100,  // MPG_METRIC_FEED_4: 0.100 mm
-        1,    // MPG_IMPERIAL_FEED_1: 0.0001 inch
-        2,    // MPG_IMPERIAL_FEED_2: 0.0002 inch
-        5,    // MPG_IMPERIAL_FEED_3: 0.0005 inch
-        50,   // MPG_IMPERIAL_FEED_4: 0.0050 inch
-        180,  // MPG_ROTARY_FEED_1: 0.180 deg - 20 handwheel revolution for full turn
-        360,  // MPG_ROTARY_FEED_2: 0.360 deg - 10 handwheel revolution for full turn
-        720,  // MPG_ROTARY_FEED_3: 0.720 deg -  5 handwheel revolution for full turn
-        3600, // MPG_ROTARY_FEED_4: 3.600 deg -  1 handwheel revolution for full turn
+        1,      // MPG_METRIC_FEED_1: 0.001 mm
+        5,      // MPG_METRIC_FEED_2: 0.005 mm
+        10,     // MPG_METRIC_FEED_3: 0.010 mm
+        100,    // MPG_METRIC_FEED_4: 0.100 mm
+        1,      // MPG_IMPERIAL_FEED_1: 0.0001 inch
+        2,      // MPG_IMPERIAL_FEED_2: 0.0002 inch
+        5,      // MPG_IMPERIAL_FEED_3: 0.0005 inch
+        50,     // MPG_IMPERIAL_FEED_4: 0.0050 inch
+        180,    // MPG_ROTARY_FEED_1: 0.180 deg - 20 handwheel revolution for full turn
+        360,    // MPG_ROTARY_FEED_2: 0.360 deg - 10 handwheel revolution for full turn
+        720,    // MPG_ROTARY_FEED_3: 0.720 deg -  5 handwheel revolution for full turn
+        3600,   // MPG_ROTARY_FEED_4: 3.600 deg -  1 handwheel revolution for full turn
         // Probe
-        200,  // PROBE_SEARCH_FEED: 200 mm/min
-        50,   // PROBE_LOCK_FEED: 50 mm/min
-        10,   // PROBE_POS_DEVIATION: 0.010 mm
-        2000  // PROBE_BALL_TIP: 2.000 mm
+        200,    // PROBE_SEARCH_FEED: 200 mm/min
+        50,     // PROBE_LOCK_FEED: 50 mm/min
+        10,     // PROBE_POS_DEVIATION: 0.010 mm
+        2000    // PROBE_BALL_TIP: 2.000 mm
       };
       // CRC
       uint32_t crc = 0u;

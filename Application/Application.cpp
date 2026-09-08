@@ -567,3 +567,23 @@ void Application::InitHeader()
   header.SetCallback(this);
   header.Show(2000);
 }
+
+// *****************************************************************************
+// ***   Public:  psnprintf   **************************************************
+// *****************************************************************************
+char* psnprintf(char* buf, uint32_t len, const char* format, ...)
+{
+  // Create string if pointer isn't null and length isn't zero
+  if((buf != nullptr) && (len != 0u))
+  {
+    // Argument list
+    va_list arglist;
+    va_start(arglist, format);
+    // Create string
+    vsnprintf(buf, len, format, arglist);
+    // End argument list
+    va_end(arglist);
+  }
+  // return buffer that was provided
+  return buf;
+}
