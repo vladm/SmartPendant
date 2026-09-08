@@ -203,7 +203,7 @@ Result Application::TimerExpired(uint32_t missed_cnt)
     if(!grbl_comm.IsWorkOffsetReportEnabled())
     {
       // Show message box
-      msg_box.Setup("WORK OFFSET", "Controller doen't report work\noffset. Please enable it in\nthe controller settings:\n\nGeneral->Status report options\n[v] Work coordinate offset");
+      msg_box.Setup("WORK OFFSET", "Controller doesn't report work\noffset. Please enable it in\nthe controller settings:\n\nGeneral->Status report options\n[v] Work coordinate offset");
       msg_box.Show(10000u);
     }
   }
