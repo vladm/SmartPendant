@@ -55,8 +55,7 @@ The firmware as a whole only runs on hardware, but **several components build an
 `Tests/host/run.py` builds the interpreter and communication layers with HAL/RTOS
 stubs under AddressSanitizer and UndefinedBehaviorSanitizer, checks ProgramSender's
 streaming timer, and compares all bundled scripts against a git baseline. See
-`Tests/host/README.md`. This workstation has a host compiler in WSL (Ubuntu-26.04);
-older notes saying no host compiler are out of date.
+`Tests/host/README.md`.
 
 **When verifying, delete the old binaries before rebuilding.** Stale executables printing "all tests passed" after a failed compile has caused false confidence more than once.
 
