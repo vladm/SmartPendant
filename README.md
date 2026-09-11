@@ -36,7 +36,15 @@ Now you can build the project using `make`.
 
 ## Hardware
 
+### Purchase
+
 Fully assembled custom board is available here (US only): https://devtronic.square.site/
+
+### Using ordered PCB from PCB manufacturer
+
+PCB files available there: [https://github.com/Devtronic-US/SmartPendant](https://github.com/Devtronic-US/SmartPendant/)
+
+### DIY version from off the shelf components
 
 To make this project yourself, you will need three essential parts:
 
@@ -48,6 +56,8 @@ To make this project yourself, you will need three essential parts:
 
 This handwheel also works with 3.3V. The STM321F411 pins that the handwheel is connected to are 5V tolerant, so it can be powered from 5V.
 Note that pendant itself needs 5v power supply, it won't work with 3v.
+
+### Case
 
 * [3D printed Case](https://github.com/Devtronic-US/SmartPendant/)
 
